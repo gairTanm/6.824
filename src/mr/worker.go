@@ -1,10 +1,12 @@
 package mr
 
-import "fmt"
-import "log"
-import "net/rpc"
-import "hash/fnv"
-
+import (
+	"fmt"
+	"hash/fnv"
+	"log"
+	"net/rpc"
+	"time"
+)
 
 //
 // Map functions return a slice of KeyValue.
@@ -24,7 +26,6 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-
 //
 // main/mrworker.go calls this function.
 //
@@ -34,8 +35,29 @@ func Worker(mapf func(string, string) []KeyValue,
 	// Your worker implementation here.
 
 	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
+	res, ok := CallRequestJob()
+	for !ok {
+		fmt.Printf("call failed!\n")
+		time.Sleep(2 * time.Second)
+		res, ok = CallRequestJob()
+	}
+	fmt.Printf("reply.Job %v\n", res.JobRecieved)
+	if res.JobRecieved == "MAP" {
+		WorkerMap(res.Filename, mapf)
+	} else if res.JobRecieved == "REDUCE" {
+		WorkerReduce(res.BucketId, reducef)
+	} else if res.JobRecieved == "DONE" {
+		fmt.Printf("all jobs done, exiting...\n")
+		return
+	}
+}
 
+func WorkerMap(filename string, mapf func(string, string) []KeyValue) {
+	// map and write to bucket files
+}
+
+func WorkerReduce(bucketId int, reducef func(string, []string) string) {
+	// read from bucket files and reduce
 }
 
 //
@@ -43,28 +65,28 @@ func Worker(mapf func(string, string) []KeyValue,
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
-func CallExample() {
+func CallRequestJob() (*RequestJobReply, bool) {
 
 	// declare an argument structure.
-	args := ExampleArgs{}
+	args := RequestJobArgs{}
 
 	// fill in the argument(s).
-	args.X = 99
 
 	// declare a reply structure.
-	reply := ExampleReply{}
+	reply := RequestJobReply{}
 
 	// send the RPC request, wait for the reply.
 	// the "Coordinator.Example" tells the
 	// receiving server that we'd like to call
 	// the Example() method of struct Coordinator.
-	ok := call("Coordinator.Example", &args, &reply)
+	ok := call("Coordinator.RequestJob", &args, &reply)
 	if ok {
 		// reply.Y should be 100.
-		fmt.Printf("reply.Y %v\n", reply.Y)
-	} else {
-		fmt.Printf("call failed!\n")
+		fmt.Printf("reply.Job %v\n", reply.Recieved)
+		return &reply, true
 	}
+	fmt.Printf("call failed!\n")
+	return nil, false
 }
 
 //

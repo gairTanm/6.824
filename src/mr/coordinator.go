@@ -6,22 +6,43 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"sync"
+	"time"
 )
 
-type Status string
+type MapTask struct {
+	filename string
+	status   JobStatus
+}
 
-const (
-	wIdle       Status = "IDLE"
-	wInProgress Status = "PROG"
-	wDone       Status = "DONE"
-)
+type ReduceTask struct {
+	filename string
+	status   JobStatus
+}
+
+func (r ReduceTask) GetStatus() JobStatus {
+	return r.status
+}
+
+func (m MapTask) GetStatus() JobStatus {
+	return m.status
+}
+
+type Task interface {
+	GetStatus() JobStatus
+}
 
 type Coordinator struct {
 	// Your definitions here.
-	nReduce  int
-	nMap     int
-	nWorkers int
-	wStatus  map[int]Status
+	nReduce      int
+	nMap         int
+	mTasksDone   bool
+	rTasksDone   bool
+	mTasks       *[]MapTask
+	rTasks       *[]ReduceTask
+	mapJobStatus map[string]JobStatus
+	wStatus      map[int]WorkerStatus
+	mu           sync.Mutex
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -31,14 +52,55 @@ type Coordinator struct {
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
-func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
-	return nil
+
+func (c *Coordinator) CheckTimeout(t Task) {
+	<-time.After(TimeoutLimit)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// TODO: check if t is still pending
 }
 
 func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) error {
-	reply.Recieved = "MAP"
-	reply.Filename = "tanmay.png"
+	mapTasksCompleted := 0
+	reduceTasksCompleted := 0
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// if all map tasks haven't been completed
+	if !c.mTasksDone {
+		for _, mTask := range *c.mTasks {
+			if mTask.status == jPending {
+				reply.Filename = mTask.filename
+				reply.JobRecieved = Map
+				mTask.status = jProgress
+				go c.CheckTimeout(mTask)
+				return nil
+			} else if mTask.status == jCompleted {
+				mapTasksCompleted++
+			}
+		}
+		if mapTasksCompleted == c.nMap {
+			c.mTasksDone = true
+		}
+	}
+
+	for _, rTask := range *c.rTasks {
+		if rTask.status == jPending {
+			reply.Filename = rTask.filename
+			reply.JobRecieved = Reduce
+			rTask.status = jProgress
+			go c.CheckTimeout(rTask)
+			return nil
+		}
+	}
+	if reduceTasksCompleted == c.nReduce {
+		c.rTasksDone = true
+	}
+
+	if c.mTasksDone && c.rTasksDone {
+		// exit code
+		c.Done()
+	}
 	return nil
 }
 
@@ -75,16 +137,14 @@ func (c *Coordinator) Done() bool {
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 //
+
+// TODO: initialise the coordinator
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 	// Your code here.
 	c.nMap = len(files)
 	c.nReduce = nReduce
-	c.nWorkers = c.nMap + c.nReduce
-	c.wStatus = make(map[int]Status, c.nWorkers)
-	for i := 0; i < c.nWorkers; i++ {
-		c.wStatus[i] = wIdle
-	}
+
 	c.server()
 	return &c
 }

@@ -16,6 +16,10 @@ type KeyValue struct {
 	Value string
 }
 
+type WorkerDetails struct {
+	id int
+}
+
 //
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -82,7 +86,7 @@ func CallRequestJob() (*RequestJobReply, bool) {
 	ok := call("Coordinator.RequestJob", &args, &reply)
 	if ok {
 		// reply.Y should be 100.
-		fmt.Printf("reply.Job %v\n", reply.Recieved)
+		fmt.Printf("reply.Job %v\n", reply.JobRecieved)
 		return &reply, true
 	}
 	fmt.Printf("call failed!\n")

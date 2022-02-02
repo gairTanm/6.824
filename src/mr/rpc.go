@@ -16,26 +16,11 @@ import (
 // and reply for an RPC.
 //
 
-type Job string
-
-const (
-	Map    Job = "MAP"
-	Reduce Job = "REDUCE"
-	Done   Job = "DONE"
-)
-
-type ExampleArgs struct {
-	X int
-}
-
-type ExampleReply struct {
-	Y int
-}
-
 // Add your RPC definitions here.
 
 type MapJob struct {
 	filename string
+	status   JobStatus
 }
 
 type RequestJobArgs struct {

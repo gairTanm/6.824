@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -10,26 +11,13 @@ import (
 	"time"
 )
 
-type MapTask struct {
+type TaskType string
+
+type Task struct {
+	taskType TaskType
 	filename string
 	status   JobStatus
-}
-
-type ReduceTask struct {
-	filename string
-	status   JobStatus
-}
-
-func (r ReduceTask) GetStatus() JobStatus {
-	return r.status
-}
-
-func (m MapTask) GetStatus() JobStatus {
-	return m.status
-}
-
-type Task interface {
-	GetStatus() JobStatus
+	workerId int
 }
 
 type Coordinator struct {
@@ -38,8 +26,8 @@ type Coordinator struct {
 	nMap         int
 	mTasksDone   bool
 	rTasksDone   bool
-	mTasks       *[]MapTask
-	rTasks       *[]ReduceTask
+	mTasks       []Task
+	rTasks       []Task
 	mapJobStatus map[string]JobStatus
 	wStatus      map[int]WorkerStatus
 	mu           sync.Mutex
@@ -58,6 +46,11 @@ func (c *Coordinator) CheckTimeout(t Task) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// TODO: check if t is still pending
+	if t.status == jProgress {
+		t.status = jPending
+		t.workerId = -1
+		fmt.Printf("%s task %d took too long, exiting\n", t.taskType, t.workerId)
+	}
 }
 
 func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) error {
@@ -68,7 +61,7 @@ func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) e
 
 	// if all map tasks haven't been completed
 	if !c.mTasksDone {
-		for _, mTask := range *c.mTasks {
+		for _, mTask := range c.mTasks {
 			if mTask.status == jPending {
 				reply.Filename = mTask.filename
 				reply.JobRecieved = Map
@@ -84,7 +77,7 @@ func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) e
 		}
 	}
 
-	for _, rTask := range *c.rTasks {
+	for _, rTask := range c.rTasks {
 		if rTask.status == jPending {
 			reply.Filename = rTask.filename
 			reply.JobRecieved = Reduce
@@ -125,7 +118,7 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	ret := false
+	ret := true
 
 	// Your code here.
 

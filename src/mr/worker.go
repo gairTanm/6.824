@@ -1,10 +1,16 @@
 package mr
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io/ioutil"
 	"log"
 	"net/rpc"
+	"os"
+	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -16,9 +22,7 @@ type KeyValue struct {
 	Value string
 }
 
-type WorkerDetails struct {
-	id int
-}
+var workerId int = os.Getpid()
 
 type ByKey []KeyValue
 
@@ -44,31 +48,127 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
+	for {
+		reply, ok := CallRequestJob()
+		if !ok {
+			fmt.Printf("%d can't call request job!\n", workerId)
+		}
+		if reply.Task == Done {
+			fmt.Printf("%d worker exiting since all tasks done\n", workerId)
+		} else if reply.Task == Map {
+			WorkerMap(reply.Filename, reply.nReduce, reply.TaskId, mapf)
+			CallTaskDone(Map, reply.TaskId)
+		} else if reply.Task == Reduce {
+			WorkerReduce(reply.TaskId, reducef)
+			CallTaskDone(Reduce, reply.TaskId)
+		}
 
-	// uncomment to send the Example RPC to the coordinator.
-	res, ok := CallRequestJob()
-	for !ok {
-		fmt.Printf("call failed!\n")
-		time.Sleep(2 * time.Second)
-		res, ok = CallRequestJob()
+		time.Sleep(200)
 	}
-	fmt.Printf("reply.Job %v\n", res.JobRecieved)
-	if res.JobRecieved == "MAP" {
-		WorkerMap(res.Filename, mapf)
-	} else if res.JobRecieved == "REDUCE" {
-		WorkerReduce(res.BucketId, reducef)
-	} else if res.JobRecieved == "DONE" {
-		fmt.Printf("all jobs done, exiting...\n")
-		return
-	}
+
 }
 
-func WorkerMap(filename string, mapf func(string, string) []KeyValue) {
+func CallTaskDone(task TaskType, taskId int) (bool, bool) {
+	args := ReportTaskArgs{workerId, task, taskId}
+	reply := ReportTaskReply{}
+	succ := call("Master.ReportTaskDone", &args, &reply)
+
+	return reply.CanExit, succ
+
+}
+
+func WorkerMap(filename string, nReduce int, taskId int, mapf func(string, string) []KeyValue) {
 	// map and write to bucket files
+	file, err := os.Open(filename)
+	if err != nil {
+		fmt.Printf("%v cannot open file", workerId)
+	}
+
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		fmt.Printf("%v cannot read file", workerId)
+	}
+	file.Close()
+
+	kva := mapf(filename, string(content))
+	prefix := fmt.Sprintf("%v/mr-%v", TempDir, taskId)
+	files := make([]*os.File, 0, nReduce)
+	buffers := make([]*bufio.Writer, 0, nReduce)
+	encoders := make([]*json.Encoder, 0, nReduce)
+
+	for i := 0; i < nReduce; i++ {
+		filePath := fmt.Sprintf("%v-%v-%v", prefix, i, os.Getpid())
+		file, err := os.Create(filePath)
+		if err != nil {
+			fmt.Printf("%v cannot create file", workerId)
+		}
+		buf := bufio.NewWriter(file)
+		files = append(files, file)
+		buffers = append(buffers, buf)
+		encoders = append(encoders, json.NewEncoder(buf))
+	}
+
+	for _, kv := range kva {
+		idx := ihash(kv.Key) % nReduce
+		err := encoders[idx].Encode(&kv)
+		if err != nil {
+			fmt.Printf("%v cannot encode file", workerId)
+		}
+	}
+
+	for _, buf := range buffers {
+		err := buf.Flush()
+		if err != nil {
+			fmt.Printf("%v can't flush to disk", workerId)
+		}
+	}
+
+	for i, file := range files {
+		file.Close()
+		newPath := fmt.Sprintf("%v-%v", prefix, i)
+		os.Rename(file.Name(), newPath)
+	}
 }
 
-func WorkerReduce(bucketId int, reducef func(string, []string) string) {
-	// read from bucket files and reduce
+func WorkerReduce(taskId int, reducef func(string, []string) string) {
+	files, err := filepath.Glob(fmt.Sprintf("%v/mr-%v-%v", TempDir, "*", taskId))
+	if err != nil {
+		fmt.Printf("%v can't open %v", workerId, files)
+	}
+
+	kvMap := make(map[string][]string)
+	var kv KeyValue
+
+	for _, filePath := range files {
+		file, err := os.Open(filePath)
+		if err != nil {
+			fmt.Printf("%v can't open %v", workerId, filePath)
+		}
+		dec := json.NewDecoder(file)
+		for dec.More() {
+			dec.Decode(&kv)
+			kvMap[kv.Key] = append(kvMap[kv.Key], kv.Value)
+		}
+	}
+
+	keys := make([]string, 0, len(kvMap))
+	for k := range kvMap {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	filePath := fmt.Sprintf("%v/mr-out-%v-%v", TempDir, taskId, os.Getpid())
+	file, _ := os.Create(filePath)
+
+	for _, k := range keys {
+		reducef(k, kvMap[k])
+		fmt.Fprintf(file, "%v %v\n", k, reducef(k, kvMap[k]))
+	}
+
+	file.Close()
+	newPath := fmt.Sprintf("mr-out-%v", taskId)
+	os.Rename(filePath, newPath)
+	CallTaskDone(Map, taskId)
 }
 
 //
@@ -93,7 +193,7 @@ func CallRequestJob() (*RequestJobReply, bool) {
 	ok := call("Coordinator.RequestJob", &args, &reply)
 	if ok {
 		// reply.Y should be 100.
-		fmt.Printf("reply.Job %v\n", reply.JobRecieved)
+		fmt.Printf("reply.Job %v\n", reply.Task)
 		return &reply, true
 	}
 	fmt.Printf("call failed!\n")

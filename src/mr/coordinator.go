@@ -11,21 +11,20 @@ import (
 	"time"
 )
 
-type TaskType string
-
 type Task struct {
 	taskType TaskType
 	filename string
 	status   JobStatus
 	workerId int
+	id       int
 }
 
 type Coordinator struct {
 	// Your definitions here.
 	nReduce      int
 	nMap         int
-	mTasksDone   bool
-	rTasksDone   bool
+	mTasksDone   int
+	rTasksDone   int
 	mTasks       []Task
 	rTasks       []Task
 	mapJobStatus map[string]JobStatus
@@ -41,11 +40,10 @@ type Coordinator struct {
 // the RPC argument and reply types are defined in rpc.go.
 //
 
-func (c *Coordinator) CheckTimeout(t Task) {
+func (c *Coordinator) CheckTimeout(t *Task) {
 	<-time.After(TimeoutLimit)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// TODO: check if t is still pending
 	if t.status == jProgress {
 		t.status = jPending
 		t.workerId = -1
@@ -53,47 +51,43 @@ func (c *Coordinator) CheckTimeout(t Task) {
 	}
 }
 
-func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) error {
-	mapTasksCompleted := 0
-	reduceTasksCompleted := 0
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// if all map tasks haven't been completed
-	if !c.mTasksDone {
-		for _, mTask := range c.mTasks {
-			if mTask.status == jPending {
-				reply.Filename = mTask.filename
-				reply.JobRecieved = Map
-				mTask.status = jProgress
-				go c.CheckTimeout(mTask)
-				return nil
-			} else if mTask.status == jCompleted {
-				mapTasksCompleted++
+func (c *Coordinator) getTask(tasks []Task, wId int) *Task {
+	for _, task := range tasks {
+		if task.status == jPending {
+			if task.taskType == Map {
+				c.mTasksDone++
+			} else if task.taskType == Reduce {
+				c.rTasksDone++
 			}
+			task.workerId = wId
+			task.status = jPending
+			return &task
 		}
-		if mapTasksCompleted == c.nMap {
-			c.mTasksDone = true
-		}
+	}
+	return nil
+}
+
+func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) error {
+	c.mu.Lock()
+	var task *Task
+	wId := args.WorkerId
+	// if all map tasks haven't been completed
+	if c.mTasksDone < c.nMap {
+		task = c.getTask(c.mTasks, wId)
+	} else if c.rTasksDone < c.nReduce {
+		task = c.getTask(c.rTasks, wId)
+	} else {
+		// give a signal to the worker to exit
+		task = &Task{Done, "", jCompleted, -1, -1}
 	}
 
-	for _, rTask := range c.rTasks {
-		if rTask.status == jPending {
-			reply.Filename = rTask.filename
-			reply.JobRecieved = Reduce
-			rTask.status = jProgress
-			go c.CheckTimeout(rTask)
-			return nil
-		}
-	}
-	if reduceTasksCompleted == c.nReduce {
-		c.rTasksDone = true
-	}
+	reply.Filename = task.filename
+	reply.TaskId = task.id
+	reply.Task = task.taskType
+	reply.nReduce = c.nReduce
 
-	if c.mTasksDone && c.rTasksDone {
-		// exit code
-		c.Done()
-	}
+	c.mu.Unlock()
+	go c.CheckTimeout(task)
 	return nil
 }
 

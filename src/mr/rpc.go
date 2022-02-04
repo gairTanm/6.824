@@ -24,12 +24,25 @@ type MapJob struct {
 }
 
 type RequestJobArgs struct {
+	WorkerId int
 }
 
 type RequestJobReply struct {
-	JobRecieved Job
-	Filename    string
-	BucketId    int
+	Task     TaskType
+	Filename string
+	BucketId int
+	TaskId   int
+	nReduce  int
+}
+
+type ReportTaskArgs struct {
+	WorkerId int
+	Task     TaskType
+	TaskId   int
+}
+
+type ReportTaskReply struct {
+	CanExit bool
 }
 
 // Cook up a unique-ish UNIX-domain socket name

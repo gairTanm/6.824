@@ -2,12 +2,14 @@ package mr
 
 import "time"
 
-type Job string
+const TempDir = "temp"
+
+type TaskType string
 
 const (
-	Map    Job = "MAP"
-	Reduce Job = "REDUCE"
-	Done   Job = "DONE"
+	Map    TaskType = "MAP"
+	Reduce TaskType = "REDUCE"
+	Done   TaskType = "DONE"
 )
 
 type WorkerStatus string

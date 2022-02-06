@@ -56,7 +56,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		if reply.Task == Done {
 			fmt.Printf("%d worker exiting since all tasks done\n", workerId)
 		} else if reply.Task == Map {
-			WorkerMap(reply.Filename, reply.nReduce, reply.TaskId, mapf)
+			WorkerMap(reply.Filename, reply.NReduce, reply.TaskId, mapf)
 			CallTaskDone(Map, reply.TaskId)
 		} else if reply.Task == Reduce {
 			WorkerReduce(reply.TaskId, reducef)
@@ -107,7 +107,6 @@ func WorkerMap(filename string, nReduce int, taskId int, mapf func(string, strin
 		buffers = append(buffers, buf)
 		encoders = append(encoders, json.NewEncoder(buf))
 	}
-
 	for _, kv := range kva {
 		idx := ihash(kv.Key) % nReduce
 		err := encoders[idx].Encode(&kv)
@@ -193,7 +192,6 @@ func CallRequestJob() (*RequestJobReply, bool) {
 	ok := call("Coordinator.RequestJob", &args, &reply)
 	if ok {
 		// reply.Y should be 100.
-		fmt.Printf("reply.Job %v\n", reply.Task)
 		return &reply, true
 	}
 	fmt.Printf("call failed!\n")

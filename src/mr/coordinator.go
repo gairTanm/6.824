@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -84,10 +85,38 @@ func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) e
 	reply.Filename = task.filename
 	reply.TaskId = task.id
 	reply.Task = task.taskType
-	reply.nReduce = c.nReduce
+	reply.NReduce = c.nReduce
 
 	c.mu.Unlock()
 	go c.CheckTimeout(task)
+	return nil
+}
+
+func (c *Coordinator) ReportTaskDone(args *ReportTaskArgs, reply *ReportTaskReply) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var task *Task
+	if args.Task == Map {
+		task = &c.mTasks[args.TaskId]
+	} else if args.Task == Reduce {
+		task = &c.rTasks[args.TaskId]
+	} else {
+		fmt.Printf("incorrect task type: %v\n", args.Task)
+		return nil
+	}
+
+	if args.WorkerId == task.workerId && task.status == jProgress {
+		task.status = jCompleted
+		if args.Task == Map && c.mTasksDone < c.nMap {
+			c.mTasksDone++
+		} else if args.Task == Reduce && c.mTasksDone < c.nReduce {
+			c.rTasksDone++
+		}
+	}
+
+	reply.CanExit = c.mTasksDone == c.nMap && c.nReduce == c.rTasksDone
+
 	return nil
 }
 
@@ -112,11 +141,10 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	ret := true
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	// Your code here.
-
-	return ret
+	return c.mTasksDone == c.nMap && c.rTasksDone == c.nReduce
 }
 
 //
@@ -131,7 +159,32 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// Your code here.
 	c.nMap = len(files)
 	c.nReduce = nReduce
+	c.mTasks = make([]Task, 0, c.nMap)
+	c.rTasks = make([]Task, 0, c.nReduce)
+
+	for i := 0; i < c.nMap; i++ {
+		mTask := Task{Map, files[i], jPending, i, -1}
+		c.mTasks = append(c.mTasks, mTask)
+	}
+	for i := 0; i < nReduce; i++ {
+		rTask := Task{Reduce, "", jPending, i, -1}
+		c.rTasks = append(c.rTasks, rTask)
+	}
 
 	c.server()
+	outFiles, _ := filepath.Glob("mr-out*")
+	for _, f := range outFiles {
+		if err := os.Remove(f); err != nil {
+			log.Fatalf("Cannot remove file %v\n", f)
+		}
+	}
+	err := os.RemoveAll(TempDir)
+	if err != nil {
+		log.Fatalf("Cannot remove temp directory %v\n", TempDir)
+	}
+	err = os.Mkdir(TempDir, 0755)
+	if err != nil {
+		log.Fatalf("Cannot create temp directory %v\n", TempDir)
+	}
 	return &c
 }

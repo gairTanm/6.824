@@ -28,4 +28,4 @@ const (
 	jCompleted JobStatus = "COMP"
 )
 
-const TimeoutLimit = 10 * time.Second
+const TimeoutLimit = 1 * time.Second

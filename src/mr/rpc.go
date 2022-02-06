@@ -19,8 +19,8 @@ import (
 // Add your RPC definitions here.
 
 type MapJob struct {
-	filename string
-	status   JobStatus
+	Filename string
+	Status   JobStatus
 }
 
 type RequestJobArgs struct {
@@ -32,7 +32,7 @@ type RequestJobReply struct {
 	Filename string
 	BucketId int
 	TaskId   int
-	nReduce  int
+	NReduce  int
 }
 
 type ReportTaskArgs struct {

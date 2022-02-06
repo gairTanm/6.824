@@ -54,7 +54,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			fmt.Printf("%d can't call request job!\n", workerId)
 		}
 		if reply.Task == Done {
-			fmt.Printf("%d worker exiting since all tasks done\n", workerId)
+			// fmt.Printf("%d worker exiting since all tasks done\n", workerId)
 		} else if reply.Task == Map {
 			WorkerMap(reply.Filename, reply.NReduce, reply.TaskId, mapf)
 			CallTaskDone(Map, reply.TaskId)
@@ -71,7 +71,7 @@ func Worker(mapf func(string, string) []KeyValue,
 func CallTaskDone(task TaskType, taskId int) (bool, bool) {
 	args := ReportTaskArgs{workerId, task, taskId}
 	reply := ReportTaskReply{}
-	succ := call("Master.ReportTaskDone", &args, &reply)
+	succ := call("Coordinator.ReportTaskDone", &args, &reply)
 
 	return reply.CanExit, succ
 

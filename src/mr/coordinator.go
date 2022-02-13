@@ -48,21 +48,19 @@ func (c *Coordinator) CheckTimeout(t *Task) {
 	if t.status == jProgress {
 		t.status = jPending
 		t.workerId = -1
-		// fmt.Printf("%s task %d took too long, exiting\n", t.taskType, t.workerId)
+		fmt.Printf("%d %s task %d took too long, exiting\n", t.workerId, t.taskType, t.workerId)
 	}
 }
 
 func (c *Coordinator) getTask(tasks []Task, wId int) *Task {
+	var taskToSend *Task
 	for _, task := range tasks {
 		if task.status == jPending {
-			if task.taskType == Map {
-				c.mTasksDone++
-			} else if task.taskType == Reduce {
-				c.rTasksDone++
-			}
-			task.workerId = wId
-			task.status = jPending
-			return &task
+			fmt.Printf("%v pending\n", task.filename)
+			taskToSend = &task
+			taskToSend.workerId = wId
+			taskToSend.status = jProgress
+			return taskToSend
 		}
 	}
 	return nil
@@ -72,25 +70,24 @@ func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) e
 	c.mu.Lock()
 	var task *Task
 	wId := args.WorkerId
-	// fmt.Printf("worker id requesting: %d\n", args.WorkerId)
+	fmt.Printf("worker id requesting: %d\n", args.WorkerId)
 
-	// if all map tasks haven't been completed
 	if c.mTasksDone < c.nMap {
 		task = c.getTask(c.mTasks, wId)
 	} else if c.rTasksDone < c.nReduce {
 		task = c.getTask(c.rTasks, wId)
 	} else {
-		// give a signal to the worker to exit
 		task = &Task{Done, "", jCompleted, -1, -1}
 	}
 
+	fmt.Printf("task sent: %v\n", task)
 	reply.Filename = task.filename
 	reply.TaskId = task.id
 	reply.Task = task.taskType
 	reply.NReduce = c.nReduce
 	// fmt.Printf("task id sent: %d\n", task.id)
 	c.mu.Unlock()
-	go c.CheckTimeout(task)
+	// go c.CheckTimeout(task)
 	return nil
 }
 
@@ -112,6 +109,8 @@ func (c *Coordinator) ReportTaskDone(args *ReportTaskArgs, reply *ReportTaskRepl
 		return nil
 	}
 
+	fmt.Printf("task %v with worker %v in task %v\n", task, args.WorkerId, task.workerId)
+
 	if args.WorkerId == task.workerId && task.status == jProgress {
 		task.status = jCompleted
 		if args.Task == Map && c.mTasksDone < c.nMap {
@@ -121,7 +120,7 @@ func (c *Coordinator) ReportTaskDone(args *ReportTaskArgs, reply *ReportTaskRepl
 		}
 	}
 
-	reply.CanExit = c.mTasksDone == c.nMap && c.nReduce == c.rTasksDone
+	reply.CanExit = (c.mTasksDone == c.nMap && c.nReduce == c.rTasksDone)
 
 	return nil
 }

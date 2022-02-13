@@ -53,9 +53,9 @@ func Worker(mapf func(string, string) []KeyValue,
 		if !ok {
 			fmt.Printf("%d can't call request job!\n", workerId)
 		}
-		// fmt.Printf("%d got %s, %d\n", workerId, reply.Task, reply.TaskId)
+		fmt.Printf("%d got %s, %d: %s\n", workerId, reply.Task, reply.TaskId, reply.Filename)
 		if reply.Task == Done {
-			// fmt.Printf("%d worker exiting since all tasks done\n", workerId)
+			fmt.Printf("%d worker exiting since all tasks done\n", workerId)
 			break
 		} else if reply.Task == Map {
 			WorkerMap(reply.Filename, reply.NReduce, reply.TaskId, mapf)
@@ -183,6 +183,7 @@ func CallRequestJob() (*RequestJobReply, bool) {
 	args := RequestJobArgs{}
 
 	// fill in the argument(s).
+	args.WorkerId = workerId
 
 	// declare a reply structure.
 	reply := RequestJobReply{}

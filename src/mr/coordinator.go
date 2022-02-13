@@ -16,8 +16,8 @@ type Task struct {
 	taskType TaskType
 	filename string
 	status   JobStatus
-	workerId int
 	id       int
+	workerId int
 }
 
 type Coordinator struct {
@@ -48,7 +48,7 @@ func (c *Coordinator) CheckTimeout(t *Task) {
 	if t.status == jProgress {
 		t.status = jPending
 		t.workerId = -1
-		fmt.Printf("%s task %d took too long, exiting\n", t.taskType, t.workerId)
+		// fmt.Printf("%s task %d took too long, exiting\n", t.taskType, t.workerId)
 	}
 }
 
@@ -72,6 +72,8 @@ func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) e
 	c.mu.Lock()
 	var task *Task
 	wId := args.WorkerId
+	// fmt.Printf("worker id requesting: %d\n", args.WorkerId)
+
 	// if all map tasks haven't been completed
 	if c.mTasksDone < c.nMap {
 		task = c.getTask(c.mTasks, wId)
@@ -86,7 +88,7 @@ func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) e
 	reply.TaskId = task.id
 	reply.Task = task.taskType
 	reply.NReduce = c.nReduce
-
+	// fmt.Printf("task id sent: %d\n", task.id)
 	c.mu.Unlock()
 	go c.CheckTimeout(task)
 	return nil
@@ -96,13 +98,17 @@ func (c *Coordinator) ReportTaskDone(args *ReportTaskArgs, reply *ReportTaskRepl
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// fmt.Printf("%d did %d\n", args.WorkerId, args.TaskId)
+	if args.TaskId < 0 {
+		return fmt.Errorf("out of bounds")
+	}
 	var task *Task
 	if args.Task == Map {
 		task = &c.mTasks[args.TaskId]
 	} else if args.Task == Reduce {
 		task = &c.rTasks[args.TaskId]
 	} else {
-		fmt.Printf("incorrect task type: %v\n", args.Task)
+		// fmt.Printf("incorrect task type: %v\n", args.Task)
 		return nil
 	}
 

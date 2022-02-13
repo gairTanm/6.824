@@ -53,8 +53,10 @@ func Worker(mapf func(string, string) []KeyValue,
 		if !ok {
 			fmt.Printf("%d can't call request job!\n", workerId)
 		}
+		// fmt.Printf("%d got %s, %d\n", workerId, reply.Task, reply.TaskId)
 		if reply.Task == Done {
 			// fmt.Printf("%d worker exiting since all tasks done\n", workerId)
+			break
 		} else if reply.Task == Map {
 			WorkerMap(reply.Filename, reply.NReduce, reply.TaskId, mapf)
 			CallTaskDone(Map, reply.TaskId)

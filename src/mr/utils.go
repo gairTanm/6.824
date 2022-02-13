@@ -12,6 +12,10 @@ const (
 	Done   TaskType = "DONE"
 )
 
+func (t TaskType) String() string {
+	return string(t)
+}
+
 type WorkerStatus string
 
 const (

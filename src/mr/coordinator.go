@@ -60,6 +60,7 @@ func (c *Coordinator) getTask(tasks []Task, wId int) *Task {
 			taskToSend = &task
 			taskToSend.workerId = wId
 			taskToSend.status = jProgress
+			tasks[taskToSend.id] = *taskToSend
 			return taskToSend
 		}
 	}
@@ -93,7 +94,8 @@ func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) e
 
 func (c *Coordinator) ReportTaskDone(args *ReportTaskArgs, reply *ReportTaskReply) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+
+	fmt.Printf("map: %v\nreduce: %v\n", c.mTasks, c.rTasks)
 
 	// fmt.Printf("%d did %d\n", args.WorkerId, args.TaskId)
 	if args.TaskId < 0 {
@@ -109,7 +111,7 @@ func (c *Coordinator) ReportTaskDone(args *ReportTaskArgs, reply *ReportTaskRepl
 		return nil
 	}
 
-	fmt.Printf("task %v with worker %v in task %v\n", task, args.WorkerId, task.workerId)
+	fmt.Printf("task %v with worker %v in task %v, status %v with arg task id %v\n", task, args.WorkerId, task.workerId, task.status, args.TaskId)
 
 	if args.WorkerId == task.workerId && task.status == jProgress {
 		task.status = jCompleted
@@ -122,6 +124,7 @@ func (c *Coordinator) ReportTaskDone(args *ReportTaskArgs, reply *ReportTaskRepl
 
 	reply.CanExit = (c.mTasksDone == c.nMap && c.nReduce == c.rTasksDone)
 
+	c.mu.Unlock()
 	return nil
 }
 

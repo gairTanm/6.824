@@ -56,7 +56,7 @@ func (c *Coordinator) getTask(tasks []Task, wId int) *Task {
 	var taskToSend *Task
 	for _, task := range tasks {
 		if task.status == jPending {
-			fmt.Printf("%v pending\n", task.filename)
+			// fmt.Printf("%v pending\n", task.filename)
 			taskToSend = &task
 			taskToSend.workerId = wId
 			taskToSend.status = jProgress
@@ -71,17 +71,20 @@ func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) e
 	c.mu.Lock()
 	var task *Task
 	wId := args.WorkerId
-	fmt.Printf("worker id requesting: %d\n", args.WorkerId)
+	// fmt.Printf("worker id requesting: %d\n", args.WorkerId)
 
+	// fmt.Printf("mdone %v\trdone %v\n", c.mTasksDone, c.rTasksDone)
 	if c.mTasksDone < c.nMap {
 		task = c.getTask(c.mTasks, wId)
+		// fmt.Printf("maptasks done %v\n", c.mTasksDone)
 	} else if c.rTasksDone < c.nReduce {
 		task = c.getTask(c.rTasks, wId)
+		// fmt.Printf("reducetasks done %v\n", c.rTasksDone)
 	} else {
 		task = &Task{Done, "", jCompleted, -1, -1}
 	}
 
-	fmt.Printf("task sent: %v\n", task)
+	// fmt.Printf("task sent: %v\n", task)
 	reply.Filename = task.filename
 	reply.TaskId = task.id
 	reply.Task = task.taskType
@@ -95,7 +98,9 @@ func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) e
 func (c *Coordinator) ReportTaskDone(args *ReportTaskArgs, reply *ReportTaskReply) error {
 	c.mu.Lock()
 
-	fmt.Printf("map: %v\nreduce: %v\n", c.mTasks, c.rTasks)
+	// fmt.Printf("reduce: %v\n", c.rTasks)
+
+	// fmt.Printf("task done req args: %v\n", args)
 
 	// fmt.Printf("%d did %d\n", args.WorkerId, args.TaskId)
 	if args.TaskId < 0 {
@@ -103,15 +108,18 @@ func (c *Coordinator) ReportTaskDone(args *ReportTaskArgs, reply *ReportTaskRepl
 	}
 	var task *Task
 	if args.Task == Map {
+		// fmt.Printf("getting a map currently\n")
 		task = &c.mTasks[args.TaskId]
 	} else if args.Task == Reduce {
+		// fmt.Printf("getting a reduce currently\n")
 		task = &c.rTasks[args.TaskId]
 	} else {
 		// fmt.Printf("incorrect task type: %v\n", args.Task)
 		return nil
 	}
 
-	fmt.Printf("task %v with worker %v in task %v, status %v with arg task id %v\n", task, args.WorkerId, task.workerId, task.status, args.TaskId)
+	// fmt.Printf("task %v with worker %v in task %v, status %v with arg task id %v\n", task, args.WorkerId, task.workerId, task.status, args.TaskId)
+	// fmt.Printf("task: %v\n", task)
 
 	if args.WorkerId == task.workerId && task.status == jProgress {
 		task.status = jCompleted

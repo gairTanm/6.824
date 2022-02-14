@@ -1,26 +1,146 @@
 *** Cannot find timeout command; proceeding anyway.
 *** Starting wc test.
-mr-wc-all mr-correct-wc.txt differ: char 2, line 1
+reply: &{MAP ../pg-dorian_gray.txt 0 1 10}
+reply: &{MAP ../pg-being_ernest.txt 0 0 10}
+reply: &{MAP ../pg-frankenstein.txt 0 2 10}
+reply: &{MAP ../pg-grimm.txt 0 3 10}
+reply: &{MAP ../pg-huckleberry_finn.txt 0 4 10}
+reply: &{MAP ../pg-metamorphosis.txt 0 5 10}
+reply: &{MAP ../pg-sherlock_holmes.txt 0 6 10}
+reply: &{MAP ../pg-tom_sawyer.txt 0 7 10}
+unexpected EOF
+call failed!
+10488 can't call request job!
+reply: <nil>
 --- wc output is not the same as mr-correct-wc.txt
 --- wc test: FAIL
 *** Starting indexer test.
-mr-indexer-all mr-correct-indexer.txt differ: char 2, line 1
+reply: &{MAP ../pg-being_ernest.txt 0 0 10}
+reply: &{MAP ../pg-dorian_gray.txt 0 1 10}
+reply: &{MAP ../pg-frankenstein.txt 0 2 10}
+reply: &{MAP ../pg-grimm.txt 0 3 10}
+reply: &{MAP ../pg-huckleberry_finn.txt 0 4 10}
+reply: &{MAP ../pg-metamorphosis.txt 0 5 10}
+reply: &{MAP ../pg-sherlock_holmes.txt 0 6 10}
+reply: &{MAP ../pg-tom_sawyer.txt 0 7 10}
+unexpected EOF
+call failed!
+10512 can't call request job!
+reply: <nil>
 --- indexer output is not the same as mr-correct-indexer.txt
 --- indexer test: FAIL
 *** Starting map parallelism test.
---- saw 0 workers rather than 2
---- map parallelism test: FAIL
---- map workers did not run in parallel
---- map parallelism test: FAIL
+reply: &{MAP ../pg-dorian_gray.txt 0 1 10}
+reply: &{MAP ../pg-being_ernest.txt 0 0 10}
+reply: &{MAP ../pg-frankenstein.txt 0 2 10}
+reply: &{MAP ../pg-grimm.txt 0 3 10}
+reply: &{MAP ../pg-metamorphosis.txt 0 5 10}
+reply: &{MAP ../pg-huckleberry_finn.txt 0 4 10}
+reply: &{MAP ../pg-sherlock_holmes.txt 0 6 10}
+reply: &{MAP ../pg-tom_sawyer.txt 0 7 10}
+reply: &{REDUCE  0 0 10}
+reply: &{REDUCE  0 1 10}
+reply: &{REDUCE  0 2 10}
+reply: &{REDUCE  0 3 10}
+reply: &{REDUCE  0 4 10}
+reply: &{REDUCE  0 5 10}
+reply: &{REDUCE  0 6 10}
+reply: &{REDUCE  0 7 10}
+reply: &{REDUCE  0 8 10}
+reply: &{REDUCE  0 9 10}
+reply: &{DONE  0 -1 10}
+10521 worker exiting since all tasks done
+reply: &{DONE  0 -1 10}
+10522 worker exiting since all tasks done
+--- map parallelism test: PASS
 *** Starting reduce parallelism test.
---- too few parallel reduces.
---- reduce parallelism test: FAIL
+reply: &{MAP ../pg-dorian_gray.txt 0 1 10}
+reply: &{MAP ../pg-being_ernest.txt 0 0 10}
+reply: &{MAP ../pg-frankenstein.txt 0 2 10}
+reply: &{MAP ../pg-grimm.txt 0 3 10}
+reply: &{MAP ../pg-huckleberry_finn.txt 0 4 10}
+reply: &{MAP ../pg-metamorphosis.txt 0 5 10}
+reply: &{MAP ../pg-sherlock_holmes.txt 0 6 10}
+reply: &{MAP ../pg-tom_sawyer.txt 0 7 10}
+reply: &{REDUCE  0 0 10}
+reply: &{REDUCE  0 1 10}
+reply: &{REDUCE  0 2 10}
+reply: &{REDUCE  0 3 10}
+reply: &{REDUCE  0 4 10}
+reply: &{REDUCE  0 5 10}
+reply: &{REDUCE  0 6 10}
+reply: &{REDUCE  0 7 10}
+reply: &{REDUCE  0 8 10}
+reply: &{REDUCE  0 9 10}
+unexpected EOF
+call failed!
+10534 can't call request job!
+reply: <nil>
+--- reduce parallelism test: PASS
 *** Starting job count test.
+reply: &{MAP ../pg-dorian_gray.txt 0 1 10}
+reply: &{MAP ../pg-being_ernest.txt 0 0 10}
+reply: &{MAP ../pg-frankenstein.txt 0 2 10}
+reply: &{MAP ../pg-grimm.txt 0 3 10}
+reply: &{MAP ../pg-huckleberry_finn.txt 0 4 10}
+reply: &{MAP ../pg-metamorphosis.txt 0 5 10}
+reply: &{MAP ../pg-sherlock_holmes.txt 0 6 10}
+reply: &{MAP ../pg-tom_sawyer.txt 0 7 10}
+reply: &{REDUCE  0 0 10}
+reply: &{REDUCE  0 1 10}
+reply: &{REDUCE  0 2 10}
+reply: &{REDUCE  0 3 10}
+reply: &{REDUCE  0 4 10}
+reply: &{REDUCE  0 5 10}
+reply: &{REDUCE  0 6 10}
+reply: &{REDUCE  0 7 10}
+reply: &{REDUCE  0 8 10}
+reply: &{REDUCE  0 9 10}
+reply: &{DONE  0 -1 10}
+10543 worker exiting since all tasks done
+reply: &{DONE  0 -1 10}
+10544 worker exiting since all tasks done
+reply: &{DONE  0 -1 10}
+10545 worker exiting since all tasks done
+reply: &{DONE  0 -1 10}
+10546 worker exiting since all tasks done
 --- job count test: PASS
 *** Starting early exit test.
---- early exit test: PASS
+reply: &{MAP ../pg-being_ernest.txt 0 0 10}
+reply: &{MAP ../pg-dorian_gray.txt 0 1 10}
+reply: &{MAP ../pg-frankenstein.txt 0 2 10}
+reply: &{MAP ../pg-grimm.txt 0 3 10}
+reply: &{MAP ../pg-huckleberry_finn.txt 0 4 10}
+reply: &{MAP ../pg-metamorphosis.txt 0 5 10}
+reply: &{MAP ../pg-sherlock_holmes.txt 0 6 10}
+reply: &{MAP ../pg-tom_sawyer.txt 0 7 10}
+reply: &{REDUCE  0 0 10}
+reply: &{REDUCE  0 1 10}
+reply: &{REDUCE  0 2 10}
+reply: &{REDUCE  0 3 10}
+reply: &{REDUCE  0 4 10}
+reply: &{REDUCE  0 5 10}
+reply: &{REDUCE  0 6 10}
+reply: &{REDUCE  0 7 10}
+reply: &{REDUCE  0 8 10}
+reply: &{REDUCE  0 9 10}
+reply: &{DONE  0 -1 10}
+10558 worker exiting since all tasks done
+--- output changed after first worker exited
+--- early exit test: FAIL
 *** Starting crash test.
-mr-crash-all mr-correct-crash.txt differ: char 1, line 1
+reply: &{MAP ../pg-being_ernest.txt 0 0 10}
+reply: &{MAP ../pg-frankenstein.txt 0 2 10}
+reply: &{MAP ../pg-dorian_gray.txt 0 1 10}
+reply: &{MAP ../pg-grimm.txt 0 3 10}
+reply: &{MAP ../pg-huckleberry_finn.txt 0 4 10}
+reply: &{MAP ../pg-metamorphosis.txt 0 5 10}
+reply: &{MAP ../pg-sherlock_holmes.txt 0 6 10}
+reply: &{MAP ../pg-tom_sawyer.txt 0 7 10}
+unexpected EOF
+call failed!
+10590 can't call request job!
+reply: <nil>
 --- crash output is not the same as mr-correct-crash.txt
 --- crash test: FAIL
 *** FAILED SOME TESTS

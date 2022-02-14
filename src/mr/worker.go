@@ -53,14 +53,16 @@ func Worker(mapf func(string, string) []KeyValue,
 		if !ok {
 			fmt.Printf("%d can't call request job!\n", workerId)
 		}
-		fmt.Printf("%d got %s, %d: %s\n", workerId, reply.Task, reply.TaskId, reply.Filename)
+		fmt.Printf("reply: %v\n", reply)
 		if reply.Task == Done {
 			fmt.Printf("%d worker exiting since all tasks done\n", workerId)
 			break
 		} else if reply.Task == Map {
+			// fmt.Printf("got a map task\n")
 			WorkerMap(reply.Filename, reply.NReduce, reply.TaskId, mapf)
 			CallTaskDone(Map, reply.TaskId)
 		} else if reply.Task == Reduce {
+			// fmt.Printf("got a reduce task\n")
 			WorkerReduce(reply.TaskId, reducef)
 			CallTaskDone(Reduce, reply.TaskId)
 		}
@@ -72,6 +74,7 @@ func Worker(mapf func(string, string) []KeyValue,
 
 func CallTaskDone(task TaskType, taskId int) (bool, bool) {
 	args := ReportTaskArgs{workerId, task, taskId}
+	// fmt.Printf("task done args: %v\n", args)
 	reply := ReportTaskReply{}
 	succ := call("Coordinator.ReportTaskDone", &args, &reply)
 
@@ -169,7 +172,6 @@ func WorkerReduce(taskId int, reducef func(string, []string) string) {
 	file.Close()
 	newPath := fmt.Sprintf("mr-out-%v", taskId)
 	os.Rename(filePath, newPath)
-	CallTaskDone(Map, taskId)
 }
 
 //

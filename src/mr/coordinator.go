@@ -42,13 +42,13 @@ type Coordinator struct {
 //
 
 func (c *Coordinator) CheckTimeout(t *Task) {
-	<-time.After(TimeoutLimit)
+	time.Sleep(TimeoutLimit)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if t.status == jProgress {
+		fmt.Printf("took too long: %v\n", t)
 		t.status = jPending
 		t.workerId = -1
-		fmt.Printf("%d %s task %d took too long, exiting\n", t.workerId, t.taskType, t.workerId)
 	}
 }
 
@@ -91,7 +91,7 @@ func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) e
 	reply.NReduce = c.nReduce
 	// fmt.Printf("task id sent: %d\n", task.id)
 	c.mu.Unlock()
-	// go c.CheckTimeout(task)
+	go c.CheckTimeout(task)
 	return nil
 }
 
@@ -100,7 +100,7 @@ func (c *Coordinator) ReportTaskDone(args *ReportTaskArgs, reply *ReportTaskRepl
 
 	// fmt.Printf("reduce: %v\n", c.rTasks)
 
-	// fmt.Printf("task done req args: %v\n", args)
+	fmt.Printf("task done req args: %v\n", args)
 
 	// fmt.Printf("%d did %d\n", args.WorkerId, args.TaskId)
 	if args.TaskId < 0 {

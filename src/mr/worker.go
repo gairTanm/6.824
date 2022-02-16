@@ -51,7 +51,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	for {
 		reply, ok := CallRequestJob()
 		if !ok {
-			fmt.Printf("%d can't call request job!\n", workerId)
+			fmt.Printf("%d can't call request job\n", workerId)
 		}
 		fmt.Printf("reply: %v\n", reply)
 		if reply.Task == Done {

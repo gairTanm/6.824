@@ -42,13 +42,29 @@ type Coordinator struct {
 //
 
 func (c *Coordinator) CheckTimeout(t *Task) {
-	time.Sleep(TimeoutLimit)
+	if t.taskType == Done {
+		return
+	}
+	<-time.After(TimeoutLimit)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if t.status == jProgress {
+	var task Task
+	if t.taskType == Map {
+		task = c.mTasks[t.id]
+	} else if t.taskType == Reduce {
+		task = c.rTasks[t.id]
+	} else {
+		return
+	}
+	if task.status == jProgress {
 		fmt.Printf("took too long: %v\n", t)
-		t.status = jPending
-		t.workerId = -1
+		if t.taskType == Map {
+			c.mTasks[t.id].status = jPending
+			c.mTasks[t.id].workerId = -1
+		} else {
+			c.rTasks[t.id].status = jPending
+			c.rTasks[t.id].workerId = -1
+		}
 	}
 }
 
@@ -56,7 +72,7 @@ func (c *Coordinator) getTask(tasks []Task, wId int) *Task {
 	var taskToSend *Task
 	for _, task := range tasks {
 		if task.status == jPending {
-			// fmt.Printf("%v pending\n", task.filename)
+			fmt.Printf("%v pending\n", task)
 			taskToSend = &task
 			taskToSend.workerId = wId
 			taskToSend.status = jProgress
@@ -64,7 +80,7 @@ func (c *Coordinator) getTask(tasks []Task, wId int) *Task {
 			return taskToSend
 		}
 	}
-	return nil
+	return &Task{No, "", jCompleted, -1, -1}
 }
 
 func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) error {
@@ -84,7 +100,8 @@ func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) e
 		task = &Task{Done, "", jCompleted, -1, -1}
 	}
 
-	// fmt.Printf("task sent: %v\n", task)
+	fmt.Printf("task sent: %v\n", task)
+
 	reply.Filename = task.filename
 	reply.TaskId = task.id
 	reply.Task = task.taskType
@@ -100,7 +117,7 @@ func (c *Coordinator) ReportTaskDone(args *ReportTaskArgs, reply *ReportTaskRepl
 
 	// fmt.Printf("reduce: %v\n", c.rTasks)
 
-	fmt.Printf("task done req args: %v\n", args)
+	// fmt.Printf("task done req args: %v\n", args)
 
 	// fmt.Printf("%d did %d\n", args.WorkerId, args.TaskId)
 	if args.TaskId < 0 {
@@ -127,6 +144,11 @@ func (c *Coordinator) ReportTaskDone(args *ReportTaskArgs, reply *ReportTaskRepl
 			c.mTasksDone++
 		} else if args.Task == Reduce && c.mTasksDone < c.nReduce {
 			c.rTasksDone++
+		}
+		if args.Task == Map {
+			c.mTasks[args.TaskId] = *task
+		} else {
+			c.rTasks[args.TaskId] = *task
 		}
 	}
 
@@ -169,7 +191,6 @@ func (c *Coordinator) Done() bool {
 // nReduce is the number of reduce tasks to use.
 //
 
-// TODO: initialise the coordinator
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 	// Your code here.

@@ -10,6 +10,7 @@ const (
 	Map    TaskType = "MAP"
 	Reduce TaskType = "REDUCE"
 	Done   TaskType = "DONE"
+	No     TaskType = "NO"
 )
 
 func (t TaskType) String() string {

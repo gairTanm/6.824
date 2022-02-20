@@ -67,7 +67,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			CallTaskDone(Reduce, reply.TaskId)
 		}
 
-		time.Sleep(200)
+		time.Sleep(500)
 	}
 
 }

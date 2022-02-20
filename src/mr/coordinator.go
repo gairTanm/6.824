@@ -77,6 +77,7 @@ func (c *Coordinator) getTask(tasks []Task, wId int) *Task {
 			taskToSend.workerId = wId
 			taskToSend.status = jProgress
 			tasks[taskToSend.id] = *taskToSend
+			fmt.Printf("task before sending: %v\n", tasks[taskToSend.id])
 			return taskToSend
 		}
 	}
@@ -106,7 +107,6 @@ func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) e
 	reply.TaskId = task.id
 	reply.Task = task.taskType
 	reply.NReduce = c.nReduce
-	// fmt.Printf("task id sent: %d\n", task.id)
 	c.mu.Unlock()
 	go c.CheckTimeout(task)
 	return nil

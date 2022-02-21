@@ -42,7 +42,7 @@ type Coordinator struct {
 //
 
 func (c *Coordinator) CheckTimeout(t *Task) {
-	if t.taskType == Done {
+	if t.taskType != Map && t.taskType != Reduce {
 		return
 	}
 	<-time.After(TimeoutLimit)
@@ -53,8 +53,6 @@ func (c *Coordinator) CheckTimeout(t *Task) {
 		task = c.mTasks[t.id]
 	} else if t.taskType == Reduce {
 		task = c.rTasks[t.id]
-	} else {
-		return
 	}
 	if task.status == jProgress {
 		fmt.Printf("took too long: %v\n", t)
@@ -114,7 +112,7 @@ func (c *Coordinator) RequestJob(args *RequestJobArgs, reply *RequestJobReply) e
 
 func (c *Coordinator) ReportTaskDone(args *ReportTaskArgs, reply *ReportTaskReply) error {
 	c.mu.Lock()
-
+	defer c.mu.Unlock()
 	// fmt.Printf("reduce: %v\n", c.rTasks)
 
 	fmt.Printf("task done req args: %v\n", args)
@@ -123,13 +121,13 @@ func (c *Coordinator) ReportTaskDone(args *ReportTaskArgs, reply *ReportTaskRepl
 	if args.TaskId < 0 {
 		return fmt.Errorf("out of bounds")
 	}
-	var task *Task
+	var task Task
 	if args.Task == Map {
 		// fmt.Printf("getting a map currently\n")
-		task = &c.mTasks[args.TaskId]
+		task = c.mTasks[args.TaskId]
 	} else if args.Task == Reduce {
 		// fmt.Printf("getting a reduce currently\n")
-		task = &c.rTasks[args.TaskId]
+		task = c.rTasks[args.TaskId]
 	} else {
 		// fmt.Printf("incorrect task type: %v\n", args.Task)
 		return nil
@@ -142,19 +140,20 @@ func (c *Coordinator) ReportTaskDone(args *ReportTaskArgs, reply *ReportTaskRepl
 		task.status = jCompleted
 		if args.Task == Map && c.mTasksDone < c.nMap {
 			c.mTasksDone++
-		} else if args.Task == Reduce && c.mTasksDone < c.nReduce {
+		} else if args.Task == Reduce && c.rTasksDone < c.nReduce {
 			c.rTasksDone++
 		}
-		if args.Task == Map {
-			c.mTasks[args.TaskId] = *task
-		} else {
-			c.rTasks[args.TaskId] = *task
-		}
+
 	}
-
-	reply.CanExit = (c.mTasksDone == c.nMap && c.nReduce == c.rTasksDone)
-
-	c.mu.Unlock()
+	if args.Task == Map {
+		c.mTasks[args.TaskId] = task
+	} else if args.Task == Reduce {
+		c.rTasks[args.TaskId] = task
+	}
+	reply.CanExit = (c.mTasksDone == c.nMap) && (c.nReduce == c.rTasksDone)
+	if reply.CanExit {
+		fmt.Printf("can exit\n")
+	}
 	return nil
 }
 

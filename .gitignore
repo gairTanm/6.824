@@ -6,3 +6,4 @@ api.key
 temp/
 mr-out*
 result*
+mr-worker-*

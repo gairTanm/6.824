@@ -2,8 +2,8 @@
 distributed systems
 ## Lab 1 mapreduce
 - [x] rpc
-- [ ] indexer
-- [ ] crash handling
+- [x] indexer
+- [x] crash handling
 - [x] mr i/o
 
 ## Lab 2 raft

@@ -19,8 +19,12 @@ package raft
 
 import (
 	//	"bytes"
+	"fmt"
+	"math/rand"
+	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	//	"6.824/labgob"
 	"6.824/labrpc"
@@ -37,6 +41,9 @@ import (
 // snapshots) on the applyCh, but set CommandValid to false for these
 // other uses.
 //
+
+var peerId = os.Getpid()
+
 type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
@@ -52,17 +59,20 @@ type ApplyMsg struct {
 //
 // A Go object implementing a single Raft peer.
 //
-type Raft struct {
-	mu        sync.Mutex          // Lock to protect shared access to this peer's state
-	peers     []*labrpc.ClientEnd // RPC end points of all peers
-	persister *Persister          // Object to hold this peer's persisted state
-	me        int                 // this peer's index into peers[]
-	dead      int32               // set by Kill()
 
+type Raft struct {
+	mu          sync.Mutex          // Lock to protect shared access to this peer's state
+	peers       []*labrpc.ClientEnd // RPC end points of all peers
+	persister   *Persister          // Object to hold this peer's persisted state
+	me          int                 // this peer's index into peers[]
+	dead        int32               // set by Kill()
+	currentTerm int                 // current term state
+	votedFor    int                 // peer voted for in this term
+	log         []*LogEntry
+	isLeader    bool
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
-
 }
 
 // return currentTerm and whether this server
@@ -70,9 +80,11 @@ type Raft struct {
 func (rf *Raft) GetState() (int, bool) {
 
 	var term int
-	var isleader bool
+	var isLeader bool
 	// Your code here (2A).
-	return term, isleader
+	term = rf.currentTerm
+	isLeader = rf.isLeader
+	return term, isLeader
 }
 
 //
@@ -134,26 +146,15 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 }
 
 //
-// example RequestVote RPC arguments structure.
-// field names must start with capital letters!
-//
-type RequestVoteArgs struct {
-	// Your data here (2A, 2B).
-}
-
-//
-// example RequestVote RPC reply structure.
-// field names must start with capital letters!
-//
-type RequestVoteReply struct {
-	// Your data here (2A).
-}
-
-//
 // example RequestVote RPC handler.
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
+	if args.term < rf.currentTerm {
+		reply.voteGranted = false
+	} else {
+		reply.voteGranted = true
+	}
 }
 
 //
@@ -243,7 +244,10 @@ func (rf *Raft) ticker() {
 		// Your code here to check if a leader election should
 		// be started and to randomize sleeping time using
 		// time.Sleep().
+		electionTimeout := time.Duration(rand.Intn(151) + 150)
+		fmt.Printf("election timeout of %v: %v\n", peerId, electionTimeout)
 
+		time.Sleep(electionTimeout * time.Millisecond)
 	}
 }
 
@@ -266,7 +270,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
-
+	rf.currentTerm = 0
+	rf.votedFor = -1
+	rf.isLeader = false
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 

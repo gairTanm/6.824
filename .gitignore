@@ -7,3 +7,5 @@ temp/
 mr-out*
 result*
 mr-worker-*
+dstest
+dslogs

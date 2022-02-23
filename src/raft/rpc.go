@@ -1,14 +1,14 @@
 package raft
 
 type AppendEntriesArgs struct {
-	term     int // leader's term
-	leaderId int
-	entries  []LogEntry
+	Term     int // leader's term
+	LeaderId int
+	Entries  []LogEntry
 }
 
 type AppendEntriesReply struct {
-	term    int
-	success bool
+	Term    int
+	Success bool
 }
 
 //
@@ -17,10 +17,10 @@ type AppendEntriesReply struct {
 //
 type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
-	term         int
-	candidateId  int
-	lastLogIndex int
-	lastLogTerm  int
+	Term         int
+	CandidateId  int
+	LastLogIndex int
+	LastLogTerm  int
 }
 
 //
@@ -29,6 +29,6 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here (2A).
-	term        int
-	voteGranted bool
+	Term        int
+	VoteGranted bool
 }

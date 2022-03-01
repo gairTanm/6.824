@@ -172,12 +172,11 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	rf.mu.Lock()
 	currentTerm, _ := rf.GetState()
+	rf.mu.Unlock()
 
-	if len(args.Entries) == 0 {
-		// reset timer since received a heartbeat
-		rf.heartbeatCh <- true
-	}
+	rf.heartbeatCh <- true
 
 	if args.Term < currentTerm {
 		reply.Success = false
@@ -185,8 +184,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 }
 
-func (rf *Raft) sendAppendEntries() {
-
+func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	return ok
 }
 
 //
@@ -221,6 +221,28 @@ func (rf *Raft) sendAppendEntries() {
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	return ok
+}
+
+func (rf *Raft) Broadcast() {
+
+	rf.mu.Lock()
+	currentTerm, _ := rf.GetState()
+	rf.mu.Unlock()
+	var replies []AppendEntriesReply
+	args := AppendEntriesArgs{currentTerm + 1, peerId, nil}
+	var wg sync.WaitGroup
+	fmt.Printf("args sent for heartbeat: %v\n", args)
+	for i := 0; i < len(rf.peers); i++ {
+		reply := AppendEntriesReply{}
+		wg.Add(1)
+		go func(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) {
+			defer wg.Done()
+			rf.sendAppendEntries(i, args, reply)
+		}(i, &args, &reply)
+		replies = append(replies, reply)
+	}
+	wg.Wait()
+	fmt.Printf("replies %v\n", replies)
 }
 
 //
@@ -277,24 +299,30 @@ func (rf *Raft) killed() bool {
 func (rf *Raft) Server() {
 	for rf.killed() == false {
 		electionTimeout := time.Duration(rand.Intn(151) + 150)
+		rf.Broadcast()
 		rf.mu.Lock()
 		_, isLeader := rf.GetState()
 		rf.mu.Unlock()
-
 		if isLeader {
 			<-time.After(heartbeatInterval)
-			rf.sendAppendEntries()
+			rf.mu.Lock()
+			rf.currentTerm += 1
+			rf.votedFor = peerId
+			rf.mu.Unlock()
+			rf.Broadcast()
 		} else {
 			// wait for a heartbeat receive or start an election whichever is earlier
 			select {
 			case <-rf.heartbeatCh:
-				fmt.Printf("%v received true", peerId)
+				fmt.Printf("%v received true\n", peerId)
 			case <-time.After(electionTimeout):
 				// start a new election
-				fmt.Printf("%v starting a new election", peerId)
+				fmt.Printf("%v starting a new election\n", peerId)
+
+			default:
+				fmt.Printf("wtf\n")
 			}
 		}
-
 	}
 }
 
@@ -313,6 +341,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
 	rf := &Raft{}
 	rf.peers = peers
+	fmt.Printf("peers: %v\n", peers)
 	rf.persister = persister
 	rf.me = me
 
@@ -325,7 +354,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.readPersist(persister.ReadRaftState())
 
 	// start ticker goroutine to start elections
-	go rf.Server()
+	// go rf.Server()
 
 	return rf
 }

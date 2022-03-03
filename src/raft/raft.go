@@ -85,8 +85,10 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isLeader bool
 	// Your code here (2A).
+	rf.mu.Lock()
 	term = rf.currentTerm
 	isLeader = rf.isLeader
+	rf.mu.Unlock()
 	return term, isLeader
 }
 
@@ -166,15 +168,15 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.Term = currentTerm
 	} else {
 		reply.VoteGranted = true
+		rf.mu.Lock()
 		rf.currentTerm = max(currentTerm, reply.Term)
+		rf.mu.Unlock()
 		reply.Term = rf.currentTerm
 	}
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
-	rf.mu.Lock()
 	currentTerm, _ := rf.GetState()
-	rf.mu.Unlock()
 
 	rf.heartbeatCh <- true
 
@@ -223,26 +225,61 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	return ok
 }
 
-func (rf *Raft) Broadcast() {
-
-	rf.mu.Lock()
+func (rf *Raft) BroadcastHeartbeats() {
 	currentTerm, _ := rf.GetState()
-	rf.mu.Unlock()
+	var repliesMu sync.Mutex
 	var replies []AppendEntriesReply
-	args := AppendEntriesArgs{currentTerm + 1, peerId, nil}
+	args := AppendEntriesArgs{currentTerm + 1, rf.me, nil}
+
 	var wg sync.WaitGroup
-	fmt.Printf("args sent for heartbeat: %v\n", args)
+	fmt.Printf("args sent for election start: %v\n", args)
 	for i := 0; i < len(rf.peers); i++ {
-		reply := AppendEntriesReply{}
 		wg.Add(1)
-		go func(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) {
+		go func(server int, args *AppendEntriesArgs) {
 			defer wg.Done()
-			rf.sendAppendEntries(i, args, reply)
-		}(i, &args, &reply)
-		replies = append(replies, reply)
+			reply := &AppendEntriesReply{}
+			rf.sendAppendEntries(server, args, reply)
+			repliesMu.Lock()
+			replies = append(replies, *reply)
+			repliesMu.Unlock()
+
+		}(i, &args)
 	}
 	wg.Wait()
+}
+
+func (rf *Raft) StartElection() {
+	currentTerm, _ := rf.GetState()
+	var repliesMu sync.Mutex
+	var replies []RequestVoteReply
+	args := RequestVoteArgs{currentTerm + 1, rf.me, -1, -1}
+	var wg sync.WaitGroup
+	fmt.Printf("args sent for election start: %v\n", args)
+	for i := 0; i < len(rf.peers); i++ {
+		wg.Add(1)
+		go func(server int, args *RequestVoteArgs) {
+			reply := &RequestVoteReply{}
+			rf.sendRequestVote(server, args, reply)
+			repliesMu.Lock()
+			replies = append(replies, *reply)
+			repliesMu.Unlock()
+			wg.Done()
+		}(i, &args)
+	}
+	wg.Wait()
+	votes := 0
 	fmt.Printf("replies %v\n", replies)
+	for i := 0; i < len(replies); i++ {
+		if replies[i].VoteGranted {
+			votes++
+		}
+	}
+	if votes*2 > len(rf.peers) {
+		rf.mu.Lock()
+		rf.currentTerm += 1
+		rf.isLeader = true
+		rf.mu.Unlock()
+	}
 }
 
 //
@@ -297,30 +334,28 @@ func (rf *Raft) killed() bool {
 // time.Sleep().
 //
 func (rf *Raft) Server() {
-	for rf.killed() == false {
-		electionTimeout := time.Duration(rand.Intn(151) + 150)
-		rf.Broadcast()
-		rf.mu.Lock()
+	for !rf.killed() {
+		electionTimeout := time.Millisecond * time.Duration(rand.Intn(151)+150)
+		// electionTimeout := time.Second * time.Duration(rand.Intn(10))
+		// rf.BroadcastHeartbeats()
+		fmt.Printf("election timeout for %v: %v\n", rf.me, electionTimeout)
 		_, isLeader := rf.GetState()
-		rf.mu.Unlock()
 		if isLeader {
 			<-time.After(heartbeatInterval)
+			go rf.BroadcastHeartbeats()
 			rf.mu.Lock()
 			rf.currentTerm += 1
 			rf.votedFor = peerId
 			rf.mu.Unlock()
-			rf.Broadcast()
 		} else {
 			// wait for a heartbeat receive or start an election whichever is earlier
 			select {
 			case <-rf.heartbeatCh:
-				fmt.Printf("%v received true\n", peerId)
+				fmt.Printf("%v received true\n", rf.me)
 			case <-time.After(electionTimeout):
 				// start a new election
-				fmt.Printf("%v starting a new election\n", peerId)
-
-			default:
-				fmt.Printf("wtf\n")
+				fmt.Printf("%v starting a new election\n", rf.me)
+				rf.StartElection()
 			}
 		}
 	}
@@ -341,7 +376,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
 	rf := &Raft{}
 	rf.peers = peers
-	fmt.Printf("peers: %v\n", peers)
 	rf.persister = persister
 	rf.me = me
 
@@ -354,7 +388,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.readPersist(persister.ReadRaftState())
 
 	// start ticker goroutine to start elections
-	// go rf.Server()
+	go rf.Server()
 
 	return rf
 }

@@ -254,7 +254,7 @@ func (rf *Raft) StartElection() {
 	var replies []RequestVoteReply
 	args := RequestVoteArgs{currentTerm + 1, rf.me, -1, -1}
 	var wg sync.WaitGroup
-	fmt.Printf("args sent for election start: %v\n", args)
+	// fmt.Printf("args sent for election start: %v\n", args)
 	for i := 0; i < len(rf.peers); i++ {
 		wg.Add(1)
 		go func(server int, args *RequestVoteArgs) {
@@ -279,6 +279,7 @@ func (rf *Raft) StartElection() {
 		rf.currentTerm += 1
 		rf.isLeader = true
 		rf.mu.Unlock()
+		go rf.BroadcastHeartbeats()
 	}
 }
 
@@ -337,8 +338,7 @@ func (rf *Raft) Server() {
 	for !rf.killed() {
 		electionTimeout := time.Millisecond * time.Duration(rand.Intn(151)+150)
 		// electionTimeout := time.Second * time.Duration(rand.Intn(10))
-		// rf.BroadcastHeartbeats()
-		fmt.Printf("election timeout for %v: %v\n", rf.me, electionTimeout)
+		Debug(dInfo, "election timeout for %v: %v\n", rf.me, electionTimeout)
 		_, isLeader := rf.GetState()
 		if isLeader {
 			<-time.After(heartbeatInterval)
@@ -351,10 +351,10 @@ func (rf *Raft) Server() {
 			// wait for a heartbeat receive or start an election whichever is earlier
 			select {
 			case <-rf.heartbeatCh:
-				fmt.Printf("%v received true\n", rf.me)
+				// D("%v received true\n", rf.me)
 			case <-time.After(electionTimeout):
 				// start a new election
-				fmt.Printf("%v starting a new election\n", rf.me)
+				Debug(dInfo, "%v starting a new election\n", rf.me)
 				rf.StartElection()
 			}
 		}

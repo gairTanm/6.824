@@ -10,6 +10,9 @@ import (
 
 type logTopic string
 
+// debug?
+const debug = false
+
 const (
 	dClient  logTopic = "CLNT"
 	dCommit  logTopic = "CMIT"
@@ -44,9 +47,6 @@ func getVerbosity() int {
 
 var debugStart time.Time
 var debugVerbosity int
-
-// debug?
-const debug = true
 
 func init() {
 	debugVerbosity = getVerbosity()

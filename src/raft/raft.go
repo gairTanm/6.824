@@ -60,6 +60,14 @@ type ApplyMsg struct {
 // A Go object implementing a single Raft peer.
 //
 
+type State string
+
+const (
+	Leader    State = "L"
+	Candidate State = "C"
+	Follower  State = "F"
+)
+
 type Raft struct {
 	mu          sync.Mutex          // Lock to protect shared access to this peer's state
 	peers       []*labrpc.ClientEnd // RPC end points of all peers
@@ -70,7 +78,8 @@ type Raft struct {
 	votedFor    int                 //
 	log         []*LogEntry         //
 	isLeader    bool                //
-	heartbeatCh chan (bool)         // buffered channel
+	state       State
+	heartbeatCh chan (bool) // buffered channel
 	//								//2A end
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
@@ -89,6 +98,21 @@ func (rf *Raft) GetState() (int, bool) {
 	isLeader = rf.isLeader
 	rf.mu.Unlock()
 	return term, isLeader
+}
+
+func (rf *Raft) ConvertToLeader() {
+	rf.state = Leader
+}
+
+func (rf *Raft) ConvertToCandidate() {
+	rf.state = Candidate
+	rf.currentTerm++
+	rf.votedFor = rf.me
+}
+func (rf *Raft) ConvertToFollower(newTerm int) {
+	rf.state = Follower
+	rf.currentTerm = newTerm
+	rf.votedFor = -1
 }
 
 //
@@ -161,14 +185,18 @@ func max(a int, b int) int {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
-	currentTerm, _ := rf.GetState()
+	rf.mu.Lock()
+	currentTerm := rf.currentTerm
+	votedFor := rf.votedFor
+	rf.mu.Unlock()
 	reply.Term = currentTerm
 	if args.Term < currentTerm {
 		reply.VoteGranted = false
-	} else {
+	} else if votedFor == -1 || votedFor == args.CandidateId {
 		reply.VoteGranted = true
 		rf.mu.Lock()
 		rf.currentTerm = max(currentTerm, args.Term)
+		rf.votedFor = args.CandidateId
 		rf.mu.Unlock()
 	}
 }
@@ -359,11 +387,11 @@ func (rf *Raft) Server() {
 	for !rf.killed() {
 		electionTimeout := time.Millisecond * time.Duration(rand.Intn(151)+150)
 		// electionTimeout := time.Second * time.Duration(rand.Intn(10))
-		_, isLeader := rf.GetState()
-		// Debug(dInfo, "%v's term: %v\n", rf.me, currentTerm)
+		currentTerm, isLeader := rf.GetState()
+		Debug(dInfo, "%v's term: %v\n", rf.me, currentTerm)
 		if isLeader {
 			<-time.After(heartbeatInterval)
-			// Debug(dInfo, "%v is the leader\n", rf.me)
+			Debug(dInfo, "%v is the leader\n", rf.me)
 			go rf.BroadcastHeartbeats()
 		} else {
 			// wait for a heartbeat receive or start an election whichever is earlier
@@ -372,7 +400,7 @@ func (rf *Raft) Server() {
 				continue
 			case <-time.After(electionTimeout):
 				// start a new election
-				// Debug(dInfo, "%v starting a new election\n", rf.me)
+				Debug(dInfo, "%v starting a new election\n", rf.me)
 				rf.StartElection()
 			}
 		}

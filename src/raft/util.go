@@ -45,6 +45,9 @@ func getVerbosity() int {
 var debugStart time.Time
 var debugVerbosity int
 
+// debug?
+const debug = true
+
 func init() {
 	debugVerbosity = getVerbosity()
 	debugStart = time.Now()
@@ -53,11 +56,15 @@ func init() {
 }
 
 func Debug(topic logTopic, format string, a ...interface{}) {
-	time := time.Since(debugStart).Microseconds()
-	time /= 100
-	prefix := fmt.Sprintf("%06d %v ", time, string(topic))
-	format = prefix + format
-	log.Printf(format, a...)
+	if debug {
+
+		time := time.Since(debugStart).Microseconds()
+		time /= 100
+		prefix := fmt.Sprintf("%06d %v ", time, string(topic))
+		format = prefix + format
+		log.Printf(format, a...)
+	}
+
 }
 
 const heartbeatInterval = time.Millisecond * 1

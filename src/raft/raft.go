@@ -230,14 +230,17 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 }
 
 func (rf *Raft) BroadcastHeartbeats() {
-	currentTerm, _ := rf.GetState()
 	var repliesMu sync.Mutex
 	var replies []AppendEntriesReply
-	args := AppendEntriesArgs{currentTerm + 1, rf.me, nil}
+	currentTerm, _ := rf.GetState()
+	args := AppendEntriesArgs{currentTerm, rf.me, nil}
 
 	var wg sync.WaitGroup
 	// fmt.Printf("args sent for election start: %v\n", args)
 	for i := 0; i < len(rf.peers); i++ {
+		if i == rf.me {
+			continue
+		}
 		wg.Add(1)
 		go func(server int, args *AppendEntriesArgs) {
 			defer wg.Done()
@@ -264,13 +267,17 @@ func (rf *Raft) StartElection() {
 	var repliesMu sync.Mutex
 	var replies []RequestVoteReply
 	rf.mu.Lock()
-	rf.currentTerm = rf.currentTerm + 1
+	rf.currentTerm++
+	rf.votedFor = rf.me
 	rf.mu.Unlock()
 	currentTerm, _ := rf.GetState()
 	args := RequestVoteArgs{currentTerm, rf.me, -1, -1}
 	var wg sync.WaitGroup
 	// fmt.Printf("args sent for election start: %v\n", args)
 	for i := 0; i < len(rf.peers); i++ {
+		if i == rf.me {
+			continue
+		}
 		wg.Add(1)
 		go func(server int, args *RequestVoteArgs) {
 			reply := &RequestVoteReply{}
@@ -352,8 +359,8 @@ func (rf *Raft) Server() {
 	for !rf.killed() {
 		electionTimeout := time.Millisecond * time.Duration(rand.Intn(151)+150)
 		// electionTimeout := time.Second * time.Duration(rand.Intn(10))
-		currentTerm, isLeader := rf.GetState()
-		Debug(dInfo, "%v's term: %v\n", rf.me, currentTerm)
+		_, isLeader := rf.GetState()
+		// Debug(dInfo, "%v's term: %v\n", rf.me, currentTerm)
 		if isLeader {
 			<-time.After(heartbeatInterval)
 			// Debug(dInfo, "%v is the leader\n", rf.me)
@@ -370,7 +377,7 @@ func (rf *Raft) Server() {
 			}
 		}
 	}
-	Debug(dInfo, "%v's status: %v, %v", rf.me, rf.isLeader, rf.currentTerm)
+	// Debug(dInfo, "%v's status: %v, %v", rf.me, rf.isLeader, rf.currentTerm)
 }
 
 //

@@ -8,9 +8,9 @@ distributed systems
 
 ## Lab 2 raft
 - [ ] leader election
-    - [x] reqvote receiver
-    - [ ] heartbeats (empty entries rpc)
-    - [ ] tickers
+    - [x] initial election
+    - [ ] network failure election
+    - [ ] multiple elections
 - [ ] log
 - [ ] persistence
 - [ ] log compaction

@@ -323,17 +323,17 @@ func (rf *Raft) StartElection() {
 	// fmt.Printf("replies %v\n", replies)rf.mu.Lock()
 	for i := 0; i < len(replies); i++ {
 		if replies[i].VoteGranted {
+			Debug(dInfo, "%v voted for %v\n", i, rf.me)
 			votes++
 		}
 	}
-
+	Debug(dInfo, "votes %v received: %v\n", rf.me, votes)
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if rf.state != Candidate || rf.currentTerm < currentTerm {
 		return
 	}
 	if votes*2 > len(rf.peers) {
-		Debug(dInfo, "votes %v received: %v\n", rf.me, votes)
 		rf.ConvertToLeader()
 		go rf.BroadcastHeartbeats()
 	}
@@ -394,26 +394,17 @@ func (rf *Raft) Server() {
 	for !rf.killed() {
 		electionTimeout := time.Millisecond * time.Duration(rand.Intn(151)+150)
 		// electionTimeout := time.Second * time.Duration(rand.Intn(10))
-		_, isLeader := rf.GetState()
 		// Debug(dTimer, "%v's term: %v\n", rf.me, currentTerm)
-		if isLeader {
-			<-time.After(heartbeatInterval)
-			Debug(dLeader, "%v\n", rf.me)
-			go rf.BroadcastHeartbeats()
-		} else {
-			// wait for a heartbeat receive or start an election whichever is earlier
-			select {
-			case <-rf.heartbeatCh:
-				// Debug(dInfo, "%v received a heartbeat\n", rf.me)
-				continue
-			case <-time.After(electionTimeout):
-				// start a new election
-				// Debug(dTimer, "%v starting a new election\n", rf.me)
-				rf.StartElection()
-			}
+		rf.mu.Lock()
+		state := rf.state
+		rf.mu.Unlock()
+		switch state {
+		case Leader:
+		case Candidate:
+		case Follower:
 		}
 	}
-	// Debug(dInfo, "%v's status: %v, %v", rf.me, rf.isLeader, rf.currentTerm)
+	Debug(dInfo, "%v's status: %v, %v", rf.me, rf.isLeader, rf.currentTerm)
 }
 
 //

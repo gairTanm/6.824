@@ -11,7 +11,7 @@ import (
 type logTopic string
 
 // debug?
-const debug = true
+const debug = false
 
 const (
 	dClient  logTopic = "CLNT"

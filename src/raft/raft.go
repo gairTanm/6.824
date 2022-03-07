@@ -191,13 +191,16 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	rf.heartbeatCh <- true
 
+	if args.Term > currentTerm {
+		rf.mu.Lock()
+		rf.ConvertToFollower(args.Term)
+		rf.mu.Unlock()
+	}
+
 	if args.Term < currentTerm {
 		reply.Success = false
 		reply.Term = currentTerm
 	} else {
-		rf.mu.Lock()
-		rf.ConvertToFollower(args.Term)
-		rf.mu.Unlock()
 		reply.Success = true
 		reply.Term = args.Term
 	}
@@ -252,6 +255,7 @@ func (rf *Raft) ConvertToCandidate() {
 	rf.state = Candidate
 	rf.currentTerm++
 	rf.votedFor = rf.me
+	rf.heartbeatCh <- true
 	Debug(dTerm, "%v became a candidate\n", rf.me)
 }
 
@@ -259,7 +263,7 @@ func (rf *Raft) ConvertToFollower(newTerm int) {
 	rf.state = Follower
 	rf.currentTerm = newTerm
 	rf.votedFor = -1
-	Debug(dInfo, "%v became a follower\n", rf.me)
+	// Debug(dInfo, "%v became a follower\n", rf.me)
 }
 
 //
@@ -291,7 +295,7 @@ func (rf *Raft) BroadcastHeartbeats() {
 	for i := 0; i < len(replies); i++ {
 		if replies[i].Term > currentTerm {
 			rf.ConvertToFollower(replies[i].Term)
-			break
+			return
 		}
 	}
 }
@@ -310,7 +314,10 @@ func (rf *Raft) StartElection() {
 		go func(server int, args *RequestVoteArgs) {
 			reply := &RequestVoteReply{}
 			Debug(dInfo, "%v sent to %v\n", rf.me, server)
-			rf.sendRequestVote(server, args, reply)
+			ok := rf.sendRequestVote(server, args, reply)
+			if !ok {
+				return
+			}
 			repliesMu.Lock()
 			replies = append(replies, *reply)
 			repliesMu.Unlock()
@@ -340,7 +347,6 @@ func (rf *Raft) StartElection() {
 	// }
 	if votes*2 > len(rf.peers) {
 		rf.ConvertToLeader()
-		go rf.BroadcastHeartbeats()
 	}
 }
 

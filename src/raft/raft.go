@@ -69,17 +69,18 @@ const (
 )
 
 type Raft struct {
-	mu          sync.Mutex          // Lock to protect shared access to this peer's state
-	peers       []*labrpc.ClientEnd // RPC end points of all peers
-	persister   *Persister          // Object to hold this peer's persisted state
-	me          int                 // this peer's index into peers[]
-	dead        int32               // set by Kill()
-	currentTerm int                 // 2A start
-	votedFor    int                 //
-	log         []*LogEntry         //
-	isLeader    bool                //
-	state       State
-	heartbeatCh chan (bool) // buffered channel
+	mu                sync.Mutex          // Lock to protect shared access to this peer's state
+	peers             []*labrpc.ClientEnd // RPC end points of all peers
+	persister         *Persister          // Object to hold this peer's persisted state
+	me                int                 // this peer's index into peers[]
+	dead              int32               // set by Kill()
+	currentTerm       int                 // 2A start
+	votedFor          int                 //
+	log               []*LogEntry         //
+	isLeader          bool                //
+	state             State
+	receivedHeartbeat bool
+	heartbeatCh       chan (bool)
 	//								//2A end
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
@@ -157,55 +158,6 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 
 }
 
-func max(a int, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-//
-// example RequestVote RPC handler.
-//
-func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
-	// Your code here (2A, 2B).
-	rf.mu.Lock()
-	currentTerm := rf.currentTerm
-	votedFor := rf.votedFor
-	rf.mu.Unlock()
-	reply.Term = currentTerm
-	if args.Term < currentTerm {
-		reply.VoteGranted = false
-	} else if votedFor == -1 {
-		reply.VoteGranted = true
-		rf.heartbeatCh <- true
-		rf.mu.Lock()
-		rf.votedFor = args.CandidateId
-		rf.ConvertToFollower(args.Term)
-		rf.mu.Unlock()
-	}
-}
-
-func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
-	currentTerm, _ := rf.GetState()
-
-	rf.heartbeatCh <- true
-
-	if args.Term > currentTerm {
-		rf.mu.Lock()
-		rf.ConvertToFollower(args.Term)
-		rf.mu.Unlock()
-	}
-
-	if args.Term < currentTerm {
-		reply.Success = false
-		reply.Term = currentTerm
-	} else {
-		reply.Success = true
-		reply.Term = args.Term
-	}
-}
-
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 	return ok
@@ -255,7 +207,6 @@ func (rf *Raft) ConvertToCandidate() {
 	rf.state = Candidate
 	rf.currentTerm++
 	rf.votedFor = rf.me
-	rf.heartbeatCh <- true
 	Debug(dTerm, "%v became a candidate\n", rf.me)
 }
 
@@ -264,6 +215,56 @@ func (rf *Raft) ConvertToFollower(newTerm int) {
 	rf.currentTerm = newTerm
 	rf.votedFor = -1
 	// Debug(dInfo, "%v became a follower\n", rf.me)
+}
+
+func max(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+//
+// example RequestVote RPC handler.
+//
+func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
+	// Your code here (2A, 2B).
+	rf.mu.Lock()
+	currentTerm := rf.currentTerm
+	votedFor := rf.votedFor
+	rf.mu.Unlock()
+	reply.Term = currentTerm
+	if args.Term < currentTerm {
+		reply.VoteGranted = false
+		Debug(dInfo, "%v asked for a vote and %v denied\n", args.CandidateId, rf.me)
+	} else if votedFor == -1 {
+		reply.VoteGranted = true
+		rf.heartbeatCh <- true
+		rf.mu.Lock()
+		rf.votedFor = args.CandidateId
+		rf.ConvertToFollower(args.Term)
+		rf.mu.Unlock()
+	}
+}
+
+func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	currentTerm, _ := rf.GetState()
+
+	rf.heartbeatCh <- true
+
+	if args.Term > currentTerm {
+		rf.mu.Lock()
+		rf.ConvertToFollower(args.Term)
+		rf.mu.Unlock()
+	}
+
+	if args.Term < currentTerm {
+		reply.Success = false
+		reply.Term = currentTerm
+	} else {
+		reply.Success = true
+		reply.Term = args.Term
+	}
 }
 
 //
@@ -310,14 +311,14 @@ func (rf *Raft) StartElection() {
 	args := RequestVoteArgs{currentTerm, rf.me, -1, -1}
 	var wg sync.WaitGroup
 	for i := 0; i < len(rf.peers); i++ {
+		if i == rf.me {
+			continue
+		}
 		wg.Add(1)
 		go func(server int, args *RequestVoteArgs) {
 			reply := &RequestVoteReply{}
 			Debug(dInfo, "%v sent to %v\n", rf.me, server)
-			ok := rf.sendRequestVote(server, args, reply)
-			if !ok {
-				return
-			}
+			rf.sendRequestVote(server, args, reply)
 			repliesMu.Lock()
 			replies = append(replies, *reply)
 			repliesMu.Unlock()
@@ -325,11 +326,10 @@ func (rf *Raft) StartElection() {
 		}(i, &args)
 	}
 	wg.Wait()
-	votes := 0
-	Debug(dInfo, "%v replies %v\n", rf.me, replies)
+	votes := 1
+	Debug(dInfo, "%v received replies %v\n", rf.me, replies)
 	for i := 0; i < len(replies); i++ {
 		if replies[i].VoteGranted {
-			// Debug(dInfo, "%v voted for %v\n", i, rf.me)
 			votes++
 		}
 		if replies[i].Term > currentTerm {
@@ -388,6 +388,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	// Your code here, if desired.
+	Debug(dError, "killed %v\n", rf.me)
 }
 
 func (rf *Raft) killed() bool {
@@ -402,33 +403,32 @@ func (rf *Raft) killed() bool {
 // time.Sleep().
 //
 func (rf *Raft) Server() {
-	for !rf.killed() {
+	for rf.killed() == false {
 		electionTimeout := time.Millisecond * time.Duration(rand.Intn(151)+150)
 		// electionTimeout := time.Second * time.Duration(rand.Intn(10))
 		_, isLeader := rf.GetState()
 		// Debug(dInfo, "%v's term: %v\n", rf.me, currentTerm)
 		// Debug(dTimer, "%v's term: %v\n", rf.me, currentTerm)
 		if isLeader {
-			<-time.After(heartbeatInterval)
-			// Debug(dInfo, "%v is the leader\n", rf.me)
-			// Debug(dLeader, "%v\n", rf.me)
-			go rf.BroadcastHeartbeats()
+			is := true
+			for is {
+				go rf.BroadcastHeartbeats()
+				time.Sleep(heartbeatInterval)
+			}
 		} else {
 			// wait for a heartbeat receive or start an election whichever is earlier
 			select {
 			case <-rf.heartbeatCh:
 				// Debug(dInfo, "%v received a heartbeat\n", rf.me)
-				continue
 			case <-time.After(electionTimeout):
 				// start a new election
-				// Debug(dInfo, "%v starting a new election\n", rf.me)
-				// Debug(dTimer, "%v starting a new election\n", rf.me)
+				Debug(dInfo, "%v starting a new election\n", rf.me)
 				rf.StartElection()
 			}
 		}
 	}
 	rf.mu.Lock()
-	Debug(dInfo, "%v's status: %v, %v", rf.me, rf.isLeader, rf.currentTerm)
+	Debug(dError, "loop finished: %v's status: %v, %v", rf.me, rf.isLeader, rf.currentTerm)
 	rf.mu.Unlock()
 }
 

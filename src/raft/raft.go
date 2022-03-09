@@ -332,12 +332,9 @@ func (rf *Raft) StartElection() {
 		if replies[i].VoteGranted {
 			votes++
 		}
-		if replies[i].Term > currentTerm {
-			rf.mu.Lock()
-			rf.ConvertToFollower(replies[i].Term)
-			rf.mu.Unlock()
-			return
-		}
+		rf.mu.Lock()
+		rf.currentTerm = max(rf.currentTerm, replies[i].Term)
+		rf.mu.Unlock()
 	}
 	// Debug(dInfo, "votes %v received: %v\n", rf.me, votes)
 	rf.mu.Lock()

@@ -409,7 +409,7 @@ func (rf *Raft) Server() {
 		if isLeader {
 			is := true
 			for is {
-				go rf.BroadcastHeartbeats()
+				rf.BroadcastHeartbeats()
 				time.Sleep(heartbeatInterval)
 			}
 		} else {

@@ -67,7 +67,7 @@ func Debug(topic logTopic, format string, a ...interface{}) {
 
 }
 
-const heartbeatInterval = time.Millisecond * 1
+const heartbeatInterval = time.Millisecond * 120
 
 type LogEntry struct {
 	Val int

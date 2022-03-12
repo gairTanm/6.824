@@ -223,6 +223,9 @@ func (rf *Raft) ConvertToFollower(newTerm int) {
 	rf.currentTerm = newTerm
 	rf.votedFor = -1
 	Debug(dInfo, "%v became a follower\n", rf.me)
+	if rf.state != Follower {
+		rf.followCh <- true
+	}
 }
 
 func max(a int, b int) int {
@@ -242,6 +245,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	votedFor := rf.votedFor
 	rf.mu.Unlock()
 
+	Debug(dInfo, "%v asked for a vote from %v \n", args.CandidateId, rf.me)
+
 	reply.Term = currentTerm
 	reply.VoteGranted = false
 	if args.Term < currentTerm {
@@ -249,24 +254,24 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 	if args.Term > currentTerm {
-		rf.followCh <- true
 		rf.ConvertToFollower(args.Term)
 	}
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	if votedFor == -1 || votedFor == args.CandidateId {
 		reply.VoteGranted = true
-		rf.mu.Lock()
 		rf.votedFor = args.CandidateId
-		rf.mu.Unlock()
 	}
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	currentTerm, _ := rf.GetState()
-
+	// rf.mu.Lock()
+	// state := rf.state
+	// rf.mu.Unlock()
 	rf.heartbeatCh <- true
 
 	if args.Term > currentTerm {
-		rf.followCh <- true
 		rf.ConvertToFollower(args.Term)
 	}
 
@@ -292,7 +297,11 @@ func (rf *Raft) BroadcastHeartbeats() {
 			go func(server int, args *AppendEntriesArgs) {
 				defer wg.Done()
 				reply := &AppendEntriesReply{}
-				rf.sendAppendEntries(server, args, reply)
+				Debug(dLog, "sent to %v\n", server)
+				ok := rf.sendAppendEntries(server, args, reply)
+				if !ok {
+					return
+				}
 				mu.Lock()
 				replies = append(replies, *reply)
 				mu.Unlock()
@@ -301,11 +310,14 @@ func (rf *Raft) BroadcastHeartbeats() {
 		}
 	}
 	wg.Wait()
+	term := -1
 	for i := 0; i < len(replies); i++ {
 		if replies[i].Term > currentTerm {
-			rf.followCh <- true
-			rf.ConvertToFollower(replies[i].Term)
+			term = max(term, replies[i].Term)
 		}
+	}
+	if term > -1 {
+		rf.ConvertToFollower(term)
 	}
 }
 
@@ -323,7 +335,10 @@ func (rf *Raft) StartElection() {
 				defer wg.Done()
 				reply := &RequestVoteReply{}
 				Debug(dInfo, "%v sent to %v\n", rf.me, server)
-				rf.sendRequestVote(server, args, reply)
+				ok := rf.sendRequestVote(server, args, reply)
+				if !ok {
+					return
+				}
 				repliesMu.Lock()
 				replies = append(replies, *reply)
 				repliesMu.Unlock()
@@ -346,8 +361,8 @@ func (rf *Raft) StartElection() {
 	if rf.state != Candidate || rf.currentTerm < currentTerm {
 		return
 	}
-	if votes*2 > len(rf.peers) {
-		rf.ConvertToLeader()
+	if votes*2 >= len(rf.peers) {
+		rf.electionCh <- true
 		rf.BroadcastHeartbeats()
 	}
 }
@@ -405,13 +420,12 @@ func (rf *Raft) killed() bool {
 // time.Sleep().
 //
 func (rf *Raft) Server() {
-	for rf.killed() == false {
+	for !rf.killed() {
 		electionTimeout := time.Millisecond * time.Duration(rand.Intn(151)+150)
 		// _, isLeader := rf.GetState()
 		rf.mu.Lock()
 		state := rf.state
 		rf.mu.Unlock()
-		// Debug(dTimer, "%v's term: %v\n", rf.me, currentTerm)
 		switch state {
 		case Leader:
 			select {
@@ -419,10 +433,10 @@ func (rf *Raft) Server() {
 			case <-time.After(heartbeatInterval):
 				rf.BroadcastHeartbeats()
 			}
-			// wait for a heartbeat receive or start an election whichever is earlier
 		case Follower:
 			select {
 			case <-rf.heartbeatCh:
+			case <-rf.followCh:
 			case <-time.After(electionTimeout):
 				// start a new election
 				rf.StartElection()
@@ -430,11 +444,14 @@ func (rf *Raft) Server() {
 		case Candidate:
 			select {
 			case <-rf.heartbeatCh:
+				continue
+			case <-rf.followCh:
 			case <-rf.electionCh:
 				rf.ConvertToLeader()
 			case <-time.After(electionTimeout):
-				rf.ConvertToCandidate()
+				rf.StartElection()
 			}
+		default:
 		}
 	}
 	rf.mu.Lock()

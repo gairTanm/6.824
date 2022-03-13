@@ -21,7 +21,6 @@ import (
 	//	"bytes"
 
 	"math/rand"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -41,8 +40,6 @@ import (
 // snapshots) on the applyCh, but set CommandValid to false for these
 // other uses.
 //
-
-var peerId = os.Getpid()
 
 type ApplyMsg struct {
 	CommandValid bool
@@ -79,10 +76,8 @@ type Raft struct {
 	log               []*LogEntry         //
 	isLeader          bool                //
 	state             State
+	electionTime      time.Time
 	receivedHeartbeat bool
-	heartbeatCh       chan (bool)
-	electionCh        chan (bool)
-	followCh          chan (bool)
 	//								//2A end
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
@@ -204,6 +199,7 @@ func (rf *Raft) ConvertToLeader() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	rf.state = Leader
+	rf.BroadcastHeartbeats()
 	Debug(dLeader, "%v became the leader\n", rf.me)
 }
 
@@ -223,9 +219,6 @@ func (rf *Raft) ConvertToFollower(newTerm int) {
 	rf.currentTerm = newTerm
 	rf.votedFor = -1
 	Debug(dInfo, "%v became a follower\n", rf.me)
-	if rf.state != Follower {
-		rf.followCh <- true
-	}
 }
 
 func max(a int, b int) int {
@@ -269,7 +262,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// rf.mu.Lock()
 	// state := rf.state
 	// rf.mu.Unlock()
-	rf.heartbeatCh <- true
 
 	if args.Term > currentTerm {
 		rf.ConvertToFollower(args.Term)
@@ -322,11 +314,11 @@ func (rf *Raft) BroadcastHeartbeats() {
 }
 
 func (rf *Raft) StartElection() {
-	var repliesMu sync.Mutex
-	var replies []RequestVoteReply
+	var votesMu sync.Mutex
 	rf.ConvertToCandidate()
 	currentTerm, _ := rf.GetState()
 	args := RequestVoteArgs{currentTerm, rf.me, -1, -1}
+	votes := 1
 	var wg sync.WaitGroup
 	for i := 0; i < len(rf.peers); i++ {
 		if i != rf.me {
@@ -339,31 +331,26 @@ func (rf *Raft) StartElection() {
 				if !ok {
 					return
 				}
-				repliesMu.Lock()
-				replies = append(replies, *reply)
-				repliesMu.Unlock()
+				Debug(dInfo, "%v received replies %v\n", rf.me, *reply)
+				if reply.Term > args.Term {
+					rf.ConvertToFollower(reply.Term)
+					return
+				}
+				if reply.Term < args.Term {
+					return
+				}
+				if !reply.VoteGranted {
+					return
+				}
+				votesMu.Lock()
+				votes++
+				votesMu.Unlock()
 			}(i, &args)
 		}
 	}
 	wg.Wait()
-	votes := 1
-	Debug(dInfo, "%v received replies %v\n", rf.me, replies)
-
-	for i := 0; i < len(replies); i++ {
-		if replies[i].VoteGranted {
-			votes++
-		}
-		if rf.currentTerm < replies[i].Term {
-			rf.followCh <- true
-			rf.ConvertToFollower(replies[i].Term)
-		}
-	}
-	if rf.state != Candidate || rf.currentTerm < currentTerm {
-		return
-	}
-	if votes*2 >= len(rf.peers) {
-		rf.electionCh <- true
-		rf.BroadcastHeartbeats()
+	if votes > len(rf.peers)/2 && rf.currentTerm == args.Term && rf.state == Candidate {
+		rf.ConvertToLeader()
 	}
 }
 
@@ -413,6 +400,12 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
+func (rf *Raft) resetElectionTimer() {
+	t := time.Now()
+	electionTimeout := time.Duration(150+rand.Intn(150)) * time.Millisecond
+	rf.electionTime = t.Add(electionTimeout)
+}
+
 // The ticker go routine starts a new election if this peer hasn't received
 // heartsbeats recently.
 // Your code here to check if a leader election should
@@ -420,39 +413,19 @@ func (rf *Raft) killed() bool {
 // time.Sleep().
 //
 func (rf *Raft) Server() {
-	for !rf.killed() {
-		electionTimeout := time.Millisecond * time.Duration(rand.Intn(151)+150)
+	for rf.killed() == false {
 		// _, isLeader := rf.GetState()
+		time.Sleep(heartbeatInterval)
 		rf.mu.Lock()
 		state := rf.state
 		rf.mu.Unlock()
-		switch state {
-		case Leader:
-			select {
-			case <-rf.followCh:
-			case <-time.After(heartbeatInterval):
-				rf.BroadcastHeartbeats()
-			}
-		case Follower:
-			select {
-			case <-rf.heartbeatCh:
-			case <-rf.followCh:
-			case <-time.After(electionTimeout):
-				// start a new election
-				rf.StartElection()
-			}
-		case Candidate:
-			select {
-			case <-rf.heartbeatCh:
-				continue
-			case <-rf.followCh:
-			case <-rf.electionCh:
-				rf.ConvertToLeader()
-			case <-time.After(electionTimeout):
-				rf.StartElection()
-			}
-		default:
+		if state == Leader {
+			rf.BroadcastHeartbeats()
 		}
+		if time.Now().After(rf.electionTime) {
+			rf.StartElection()
+		}
+
 	}
 	rf.mu.Lock()
 	Debug(dError, "loop finished: %v's status: %v, %v", rf.me, rf.isLeader, rf.currentTerm)
@@ -482,9 +455,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.votedFor = -1
 	rf.isLeader = false
 	rf.state = Follower
-	rf.heartbeatCh = make(chan bool, 1)
-	rf.electionCh = make(chan bool, 1)
-	rf.followCh = make(chan bool, 1)
+	rf.resetElectionTimer()
+	// rf.heartbeatCh = make(chan bool, 1)
+	// rf.electionCh = make(chan bool, 1)
+	// rf.followCh = make(chan bool, 1)
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 

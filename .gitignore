@@ -10,3 +10,4 @@ mr-worker-*
 dstest
 dslogs
 *.log
+.idea/

@@ -174,6 +174,7 @@ func (rf *Raft) resetElectionTimer() {
 
 func (rf *Raft) ConvertToLeader() {
 	rf.state = Leader
+	rf.BroadcastAppendEntries(true)
 	Debug(dLeader, "[%v]", rf.me)
 }
 
@@ -181,14 +182,11 @@ func (rf *Raft) ConvertToCandidate() {
 	rf.state = Candidate
 	rf.currentTerm++
 	rf.votedFor = rf.me
-	rf.resetElectionTimer()
+	//rf.resetElectionTimer()
 	Debug(dInfo, "[%v] became a candidate", rf.me)
 }
 
 func (rf *Raft) ConvertToFollower(term int) {
-	if rf.state == Follower {
-		return
-	}
 	rf.state = Follower
 	rf.votedFor = -1
 	rf.currentTerm = term
@@ -218,16 +216,17 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	currentTerm, _ := rf.GetState()
-
+	Debug(dLog2, "[%v] received a heartbeat", rf.me)
 	rf.heartbeatCh <- true
-
-	reply.Term = currentTerm
+	//rf.resetElectionTimer()
 	reply.Success = false
+	reply.Term = currentTerm
 	if args.Term < currentTerm {
 		return
 	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	reply.Success = true
 	if args.Term > currentTerm {
 		rf.ConvertToFollower(args.Term)
 	}
@@ -279,29 +278,32 @@ func (rf *Raft) BroadcastAppendEntries(heartbeat bool) {
 		LeaderId: rf.me,
 		Entries:  nil,
 	}
-	var wg sync.WaitGroup
 	// fmt.Printf("args sent for election start: %v\n", args)
-	for i := 0; i < len(rf.peers); i++ {
-		if i == rf.me {
-			continue
+	if heartbeat {
+		var wg sync.WaitGroup
+		for i := 0; i < len(rf.peers); i++ {
+			if i == rf.me {
+				continue
+			}
+			wg.Add(1)
+			go func(server int, args *AppendEntriesArgs) {
+				defer wg.Done()
+				reply := &AppendEntriesReply{}
+				//Debug(dInfo, "[%v] sent a heartbeat to %v", rf.me, server)
+				ok := rf.sendAppendEntries(server, args, reply)
+				if !ok {
+					return
+				}
+				//Debug(dInfo, "[%v] sent a heartbeat to %v", rf.me, server)
+				rf.mu.Lock()
+				defer rf.mu.Unlock()
+				if reply.Term > rf.currentTerm {
+					rf.ConvertToFollower(reply.Term)
+				}
+			}(i, &args)
 		}
-		wg.Add(1)
-		go func(server int, args *AppendEntriesArgs) {
-			defer wg.Done()
-			reply := &AppendEntriesReply{}
-			ok := rf.sendAppendEntries(server, args, reply)
-			if !ok {
-				return
-			}
-			rf.mu.Lock()
-			defer rf.mu.Unlock()
-			if reply.Term > rf.currentTerm {
-				rf.ConvertToFollower(reply.Term)
-				return
-			}
-		}(i, &args)
+		wg.Wait()
 	}
-	wg.Wait()
 }
 
 func (rf *Raft) StartElection() {
@@ -317,14 +319,11 @@ func (rf *Raft) StartElection() {
 	}
 	//var mu sync.Mutex
 	votes := 1
-	var wg sync.WaitGroup
 	for i := 0; i < len(rf.peers); i++ {
 		if i == rf.me {
 			continue
 		}
-		wg.Add(1)
 		go func(server int, args *RequestVoteArgs, votes *int) {
-			defer wg.Done()
 			reply := &RequestVoteReply{}
 			ok := rf.sendRequestVote(server, args, reply)
 			if !ok {
@@ -341,16 +340,12 @@ func (rf *Raft) StartElection() {
 				return
 			}
 			*votes++
+			if *votes > len(rf.peers)/2 && rf.state == Candidate {
+				rf.ConvertToLeader()
+			}
 		}(i, &args, &votes)
 	}
-	wg.Wait()
 	Debug(dVote, "[%v]: %v", rf.me, votes)
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	if votes*2 > len(rf.peers) && rf.state == Candidate {
-		rf.ConvertToLeader()
-		rf.BroadcastAppendEntries(true)
-	}
 }
 
 // Start
@@ -413,7 +408,7 @@ func (rf *Raft) Server() {
 		// Debug(dInfo, "%v's term: %v\n", rf.me, currentTerm)
 		if isLeader {
 			<-time.After(heartbeatInterval)
-			rf.BroadcastAppendEntries(true)
+			go rf.BroadcastAppendEntries(true)
 			continue
 		} else {
 			// wait for a heartbeat receive or start an election whichever is earlier
@@ -447,7 +442,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
-
+	//rf.resetElectionTimer()
 	// Your initialization code here (2A, 2B, 2C).
 	rf.currentTerm = 0
 	rf.votedFor = -1

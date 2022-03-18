@@ -12,6 +12,7 @@ type AppendEntriesReply struct {
 }
 
 //
+//
 // example RequestVote RPC arguments structure.
 // field names must start with capital letters!
 //

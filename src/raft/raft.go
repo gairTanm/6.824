@@ -80,6 +80,7 @@ type Raft struct {
 	state               State
 	winElectionCh       chan bool
 	convertToFollowerCh chan bool
+	voteGrantedCh       chan bool
 	heartbeatCh         chan bool
 	votes               int
 	//								//2A end
@@ -229,6 +230,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
 		reply.VoteGranted = true
 		rf.votedFor = args.CandidateId
+		rf.SendToChannel(rf.voteGrantedCh, true)
 	}
 }
 
@@ -243,6 +245,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
+	if args.Term > rf.currentTerm {
+		rf.ConvertToFollower(args.Term)
+	}
+
 	rf.SendToChannel(rf.heartbeatCh, true)
 	reply.Success = true
 }
@@ -255,7 +261,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	if rf.state != Leader || args.Term != rf.currentTerm {
+	if rf.state != Leader || args.Term != rf.currentTerm /* || reply.Term < rf.currentTerm*/ {
 		return
 	}
 
@@ -303,7 +309,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	defer rf.mu.Unlock()
 
 	Debug(dVote, "[%v]: got %v from %v\n", rf.me, reply, server)
-	if rf.state != Candidate || args.Term != rf.currentTerm {
+	if rf.state != Candidate || args.Term != rf.currentTerm /*|| reply.Term <rf.currentTerm*/ {
 		Debug(dInfo, "returning here ")
 		return
 	}
@@ -434,6 +440,7 @@ func (rf *Raft) Server() {
 			}
 		case Follower:
 			select {
+			case <-rf.voteGrantedCh:
 			case <-rf.heartbeatCh:
 			case <-time.After(GetElectionTimeout() * time.Millisecond):
 				rf.ConvertToCandidate(Follower)
@@ -449,6 +456,7 @@ func (rf *Raft) ResetChannels() {
 	rf.winElectionCh = make(chan bool)
 	rf.convertToFollowerCh = make(chan bool)
 	rf.heartbeatCh = make(chan bool)
+	rf.voteGrantedCh = make(chan bool)
 }
 
 // Make
@@ -476,6 +484,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.votes = 0
 	rf.state = Follower
 	rf.heartbeatCh = make(chan bool)
+	rf.voteGrantedCh = make(chan bool)
 	rf.winElectionCh = make(chan bool)
 	rf.convertToFollowerCh = make(chan bool)
 	// initialize from state persisted before a crash

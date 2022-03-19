@@ -20,7 +20,6 @@ package raft
 import (
 	//	"bytes"
 
-	"math/rand"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -69,29 +68,27 @@ const (
 )
 
 type Raft struct {
-	mu           sync.Mutex          // Lock to protect shared access to this peer's state
-	peers        []*labrpc.ClientEnd // RPC end points of all peers
-	persister    *Persister          // Object to hold this peer's persisted state
-	me           int                 // this peer's index into peers[]
-	dead         int32               // set by Kill()
-	currentTerm  int                 // 2A start
-	votedFor     int                 //
-	log          []*LogEntry         //
-	isLeader     bool                //
-	state        State
-	electionTime time.Time
-	winElectCh   chan bool
-	stepDownCh   chan bool
-	grantVoteCh  chan bool
-	heartbeatCh  chan bool
-	votes        int
+	mu                  sync.Mutex          // Lock to protect shared access to this peer's state
+	peers               []*labrpc.ClientEnd // RPC end points of all peers
+	persister           *Persister          // Object to hold this peer's persisted state
+	me                  int                 // this peer's index into peers[]
+	dead                int32               // set by Kill()
+	currentTerm         int                 // 2A start
+	votedFor            int                 //
+	log                 []*LogEntry         //
+	isLeader            bool                //
+	state               State
+	winElectionCh       chan bool
+	convertToFollowerCh chan bool
+	heartbeatCh         chan bool
+	votes               int
 	//								//2A end
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 }
 
-func (rf *Raft) sendToChannel(ch chan bool, value bool) {
+func (rf *Raft) SendToChannel(ch chan bool, value bool) {
 	select {
 	case ch <- value:
 	default:
@@ -107,7 +104,7 @@ func (rf *Raft) GetState() (int, bool) {
 	// Your code here (2A).
 	rf.mu.Lock()
 	term = rf.currentTerm
-	isLeader = rf.isLeader
+	isLeader = rf.state == Leader
 	rf.mu.Unlock()
 	return term, isLeader
 }
@@ -170,19 +167,6 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 
 }
 
-func max(a int, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func (rf *Raft) resetElectionTimer() {
-	t := time.Now()
-	electionTimeout := time.Duration(150+rand.Intn(150)) * time.Millisecond
-	rf.electionTime = t.Add(electionTimeout)
-}
-
 func (rf *Raft) ConvertToLeader() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -191,9 +175,9 @@ func (rf *Raft) ConvertToLeader() {
 		return
 	}
 
-	rf.resetChannels()
+	rf.ResetChannels()
 	rf.state = Leader
-	rf.BroadcastAppendEntries(true)
+	rf.BroadcastAppendEntries()
 	Debug(dLeader, "[%v]", rf.me)
 }
 
@@ -205,12 +189,12 @@ func (rf *Raft) ConvertToCandidate(from State) {
 		return
 	}
 
-	rf.resetChannels()
+	rf.ResetChannels()
 	rf.state = Candidate
 	rf.currentTerm++
 	rf.votes++
 	rf.votedFor = rf.me
-	//rf.resetElectionTimer()
+	//rf.ResetElectionTimer()
 	Debug(dInfo, "[%v] became a candidate", rf.me)
 	rf.StartElection()
 }
@@ -221,7 +205,7 @@ func (rf *Raft) ConvertToFollower(term int) {
 	rf.votedFor = -1
 	rf.currentTerm = term
 	if state != Follower {
-		rf.sendToChannel(rf.stepDownCh, true)
+		rf.SendToChannel(rf.convertToFollowerCh, true)
 	}
 	Debug(dInfo, "[%v] stepped down to follower", rf.me)
 }
@@ -259,7 +243,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
-	rf.sendToChannel(rf.heartbeatCh, true)
+	rf.SendToChannel(rf.heartbeatCh, true)
 	reply.Success = true
 }
 
@@ -271,7 +255,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	if rf.state != Leader || args.Term != rf.currentTerm || reply.Term < rf.currentTerm {
+	if rf.state != Leader || args.Term != rf.currentTerm {
 		return
 	}
 
@@ -319,23 +303,26 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	defer rf.mu.Unlock()
 
 	Debug(dVote, "[%v]: got %v from %v\n", rf.me, reply, server)
-	if rf.state != Candidate || args.Term != rf.currentTerm || reply.Term < rf.currentTerm {
+	if rf.state != Candidate || args.Term != rf.currentTerm {
+		Debug(dInfo, "returning here ")
 		return
 	}
+
 	if reply.Term > rf.currentTerm {
 		rf.ConvertToFollower(args.Term)
 		return
 	}
+
 	if reply.VoteGranted {
 		rf.votes++
+		Debug(dVote, "[%v]: %v", rf.me, rf.votes)
 		if rf.votes*2 >= len(rf.peers) {
-			Debug(dInfo, "won")
-			rf.sendToChannel(rf.winElectCh, true)
+			rf.SendToChannel(rf.winElectionCh, true)
 		}
 	}
 }
 
-func (rf *Raft) BroadcastAppendEntries(heartbeat bool) {
+func (rf *Raft) BroadcastAppendEntries() {
 	if rf.state != Leader {
 		return
 	}
@@ -422,10 +409,6 @@ func (rf *Raft) killed() bool {
 // time.Sleep().
 //
 
-func (rf *Raft) getElectionTimeout() time.Duration {
-	return time.Duration(360 + rand.Intn(240))
-}
-
 func (rf *Raft) Server() {
 	for !rf.killed() {
 		// electionTimeout := time.Second * time.Duration(rand.Intn(10))
@@ -435,25 +418,24 @@ func (rf *Raft) Server() {
 		switch state {
 		case Leader:
 			select {
-			case <-rf.stepDownCh:
+			case <-rf.convertToFollowerCh:
 			case <-time.After(heartbeatInterval):
 				rf.mu.Lock()
-				rf.BroadcastAppendEntries(true)
+				rf.BroadcastAppendEntries()
 				rf.mu.Unlock()
 			}
 		case Candidate:
 			select {
-			case <-rf.stepDownCh:
-			case <-rf.winElectCh:
+			case <-rf.convertToFollowerCh:
+			case <-rf.winElectionCh:
 				rf.ConvertToLeader()
-			case <-time.After(rf.getElectionTimeout() * time.Millisecond):
+			case <-time.After(GetElectionTimeout() * time.Millisecond):
 				rf.ConvertToCandidate(Candidate)
 			}
 		case Follower:
 			select {
-			case <-rf.grantVoteCh:
 			case <-rf.heartbeatCh:
-			case <-time.After(rf.getElectionTimeout() * time.Millisecond):
+			case <-time.After(GetElectionTimeout() * time.Millisecond):
 				rf.ConvertToCandidate(Follower)
 			}
 		}
@@ -463,10 +445,9 @@ func (rf *Raft) Server() {
 	// Debug(dInfo, "%v's status: %v, %v", rf.me, rf.isLeader, rf.currentTerm)
 }
 
-func (rf *Raft) resetChannels() {
-	rf.winElectCh = make(chan bool)
-	rf.stepDownCh = make(chan bool)
-	rf.grantVoteCh = make(chan bool)
+func (rf *Raft) ResetChannels() {
+	rf.winElectionCh = make(chan bool)
+	rf.convertToFollowerCh = make(chan bool)
 	rf.heartbeatCh = make(chan bool)
 }
 
@@ -487,7 +468,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
-	//rf.resetElectionTimer()
+	//rf.ResetElectionTimer()
 	// Your initialization code here (2A, 2B, 2C).
 	rf.currentTerm = 0
 	rf.votedFor = -1
@@ -495,9 +476,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.votes = 0
 	rf.state = Follower
 	rf.heartbeatCh = make(chan bool)
-	rf.winElectCh = make(chan bool)
-	rf.grantVoteCh = make(chan bool)
-	rf.stepDownCh = make(chan bool)
+	rf.winElectionCh = make(chan bool)
+	rf.convertToFollowerCh = make(chan bool)
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 

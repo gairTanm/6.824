@@ -1,25 +1,31 @@
 # 6.824
+
 distributed systems
+
 ## Lab 1 mapreduce
+
 - [x] rpc
 - [x] indexer
 - [x] crash handling
 - [x] mr i/o
 
 ## Lab 2 raft
-- [ ] leader election
+
+- [x] leader election
     - [x] initial election
-    - [ ] network failure election
-    - [ ] multiple elections
+    - [x] network failure election
+    - [x] multiple elections
 - [ ] log
 - [ ] persistence
 - [ ] log compaction
 
 ## Lab 3 fault-tolerant kv service
+
 - [ ] kv without snapshots
 - [ ] kv with snapshots
 
 ## Lab 4 sharded kv service
+
 - [ ] shard controller
 - [ ] sharded kv server
 - [ ] *garbage collection*

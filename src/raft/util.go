@@ -3,6 +3,7 @@ package raft
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"strconv"
 	"time"
@@ -11,7 +12,7 @@ import (
 type logTopic string
 
 // debug?
-const debug = true
+const debug = false
 
 const (
 	dClient  logTopic = "CLNT"
@@ -71,4 +72,15 @@ const heartbeatInterval = time.Millisecond * 120
 
 type LogEntry struct {
 	Val int
+}
+
+func max(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func GetElectionTimeout() time.Duration {
+	return time.Duration(360 + rand.Intn(240))
 }
